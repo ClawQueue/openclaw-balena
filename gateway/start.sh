@@ -255,7 +255,28 @@ if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
 
   # Also set the vars for envsubst (it reads from the env)
   envsubst < /app/openclaw.json5.template > "$OPENCLAW_CONFIG_PATH"
+
+  # Sanitize: remove any leftover ${...} patterns that envsubst couldn't resolve
+  # (e.g., in comments). These can confuse the JSON5 parser.
+  sed -i.bak-sanitize 's/\${[A-Za-z_][A-Za-z0-9_]*}//g' "$OPENCLAW_CONFIG_PATH"
+  rm -f "${OPENCLAW_CONFIG_PATH}.bak-sanitize"
+
   echo "✓ Config rendered from template"
+
+  echo "=== RENDERED CONFIG (first 60 lines) ==="
+  head -60 "$OPENCLAW_CONFIG_PATH"
+  echo "=== END RENDERED CONFIG ==="
+
+  echo "=== RENDERED CONFIG (lines 60-80 containing providers/foundry) ==="
+  sed -n '60,80p' "$OPENCLAW_CONFIG_PATH"
+  echo "=== END ==="
+
+  # Check for any remaining ${} patterns
+  if grep -n '\${' "$OPENCLAW_CONFIG_PATH"; then
+    echo "⚠ WARNING: Unresolved variable patterns remain in config!"
+  else
+    echo "✓ No unresolved variable patterns in config"
+  fi
 else
   echo "Using existing config at $OPENCLAW_CONFIG_PATH"
 fi
@@ -372,19 +393,20 @@ if [ -n "$PLUGINS_LIST" ]; then
   done
 fi
 
-# ── 6.5. Auto-fix configuration issues (optional) ────────────────────────
+# ── 6.5. Auto-fix configuration issues ──────────────────────────────────
 #
-# If OPENCLAW_AUTO_DOCTOR is set, automatically run openclaw doctor --fix
-# to repair common configuration issues before starting the gateway.
+# Always run openclaw doctor to validate and auto-fix config before starting.
+# This catches issues like schema mismatches, invalid defaults, etc.
+# Set OPENCLAW_SKIP_DOCTOR=true to skip this step.
 #
-if [ "${OPENCLAW_AUTO_DOCTOR:-false}" = "true" ]; then
+if [ "${OPENCLAW_SKIP_DOCTOR:-false}" != "true" ]; then
   echo "──────────────────────────────────────────────────────────────────"
-  echo "  Running openclaw doctor --fix"
+  echo "  Validating config with openclaw doctor..."
   echo "──────────────────────────────────────────────────────────────────"
   if openclaw doctor --fix 2>&1; then
-    echo "  ✓ Configuration issues fixed"
+    echo "  ✓ Config validated"
   else
-    echo "  ⚠ Doctor encountered issues (continuing with current config)"
+    echo "  ⚠ Doctor found issues (continuing)"
   fi
 fi
 
