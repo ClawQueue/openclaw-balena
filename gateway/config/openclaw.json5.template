@@ -55,10 +55,14 @@
     // Set FOUNDRY_ENDPOINT to your Azure OpenAI endpoint, e.g.:
     //   https://<your-resource>.openai.azure.com/openai/v1/
     // Set FOUNDRY_API_KEY to your Azure OpenAI key.
+    //
+    // NOTE: OpenClaw auto-detects Azure endpoints and uses openai-responses API.
+    // The Azure/Foundry API gateway validates tool types strictly; avoid sending
+    // reasoning blocks, server-side compaction, or plugins that add unsupported
+    // tool types. Keep the model config minimal.
     {
       id: "foundry",
-      provider: "microsoft-foundry",
-      authHeader: true,
+      provider: "openai",
       apiKey: "${FOUNDRY_API_KEY}",
       baseURL: "${FOUNDRY_ENDPOINT}",
       models: [
