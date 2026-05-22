@@ -1,102 +1,186 @@
 # OpenClaw on Balena
 
-[![Deploy with balena](https://balena.io/deploy.svg)](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/WeatherXM/openclaw-balena&defaultDeviceType=raspberrypi4-64)
+Run [OpenClaw](https://github.com/openclaw/openclaw) on a Raspberry Pi 4/5 as a self-hosted AI agent gateway. Deploy and manage via [balenaCloud](https://balena.io) with OTA updates, version snapshots with rollback, and automatic HTTPS.
 
-Run [OpenClaw](https://github.com/openclaw/openclaw) on a Raspberry Pi as a self-hosted AI assistant. OpenClaw is an open-source personal AI gateway that connects to cloud providers (Google Gemini, OpenAI, Anthropic, OpenRouter) and exposes a web UI, multi-channel messaging inbox, voice interaction, browser automation, and a skills/plugin ecosystem — all running on your own hardware.
+---
 
-This project wraps the OpenClaw Gateway in a Balena container so you can deploy and manage it via the balenaCloud dashboard with OTA updates.
+## Architecture
 
-**Supported devices:** Raspberry Pi 4, Raspberry Pi 5
+Two containers:
+
+| Container | Purpose |
+|-----------|---------|
+| `proxy` | HAProxy reverse proxy with self-signed TLS on ports 80/443. Handles LAN HTTPS, balena public URL tunnel, and header forwarding. |
+| `openclaw` | OpenClaw gateway on port 8080 (Node.js). Config rendered from template at boot, with per-version snapshots for safe upgrades. |
 
 ---
 
 ## Setup
 
-### 1. Deploy to balenaCloud
+### 1. Deploy
 
-Click the deploy button above, or use this link:
+Push to your fleet:
 
-**[Deploy to balenaCloud](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/WeatherXM/openclaw-balena&defaultDeviceType=raspberrypi4-64)**
+```bash
+balena push <username>/<fleet-name>
+```
 
-This creates a new application in your balenaCloud account and lets you flash your device.
+Or use the balenaCloud deploy button.
 
-### 2. Configure environment variables
+### 2. Configure
 
-**All environment variables** you set in balenaCloud Device Variables are automatically passed to OpenClaw and available in its runtime environment.
+Set these **Device Variables** in the balenaCloud dashboard:
 
-In the balenaCloud dashboard, go to **Device Variables** and set at least one AI provider key:
+#### Required
+
+| Variable | Purpose |
+|----------|---------|
+| `DEFAULT_MODEL_REF` | Model to use, e.g. `openai/gpt-5.5`, `foundry/gpt-4o`, `google/gemini-2.5-pro` |
+
+#### API Keys
+
+Set at least one provider's key:
 
 | Variable | Provider |
 |----------|----------|
-| `GOOGLE_API_KEY` | Google Gemini |
 | `OPENAI_API_KEY` | OpenAI |
-| `ANTHROPIC_API_KEY` | Anthropic |
-| `OPENROUTER_API_KEY` | OpenRouter (100+ models) |
+| `ANTHROPIC_API_KEY` | Anthropic (Claude) |
+| `GOOGLE_API_KEY` | Google Gemini |
+| `OPENROUTER_API_KEY` | OpenRouter |
+| `FOUNDRY_API_KEY` + `FOUNDRY_ENDPOINT` | Microsoft Foundry (custom endpoint) |
 
-You only need one. Set whichever provider you have an account with.
-
-**Any other environment variable** you add in Balena Cloud will be automatically exported to OpenClaw's environment (`~/.openclaw/.env`), allowing you to configure integrations, custom providers, or any other settings. You can then reference these in your `openclaw.json` config to control which ones OpenClaw actually uses.
+All API keys are injected into `openclaw.json` and also exported to the runtime environment. You can add other provider config by editing `gateway/config/openclaw.json5.template`.
 
 ### 3. Open the UI
 
-Browse to `https://<device-ip>` (port 443). Your browser will show a certificate warning for the self-signed TLS certificate — accept it once. If prompted for a token, check the device logs in the Balena dashboard — one is auto-generated on first boot.
+- **LAN:** `https://<device-ip>` (accept self-signed cert)
+- **Balena tunnel:** `https://<device-uuid>.balena-devices.com/`
 
-To set your own token, add a `OPENCLAW_GATEWAY_TOKEN` device variable.
+The auth token is auto-generated on first boot (check device logs) or set via `OPENCLAW_GATEWAY_TOKEN`.
 
 ---
 
-## Environment Variables
+## Configuration
 
-**All environment variables** set in Balena Cloud Device Variables are automatically exported to OpenClaw and written to `~/.openclaw/.env`. This allows you to:
+### How config works
 
-- Configure any AI provider (official or custom)
-- Set integration credentials (Home Assistant, MQTT, etc.)
-- Pass custom configuration values to skills and plugins
-- Control feature flags and runtime behavior
+The [config template](gateway/config/openclaw.json5.template) is rendered at boot via `envsubst` — all `${VAR}` placeholders are filled from balena device variables. This template is the **single source of truth** for your provider configuration.
 
-The start script filters out common system variables (PATH, HOME, etc.) but passes everything else through. You can then reference these variables in your [openclaw.json config](gateway/config/openclaw.json5.template) to control which providers and integrations OpenClaw uses.
+- **First boot:** Renders from template → `openclaw.json`
+- **Subsequent boots:** Uses existing `openclaw.json` (survives updates)
+- **Re-render:** Set `OPENCLAW_RECONFIGURE=true` to backup the existing config and re-render from the updated template
 
-**Example workflow:**
+### Provider config
 
-1. Add a Device Variable in Balena Cloud: `CUSTOM_API_KEY=sk-xyz123`
-2. The variable is automatically written to `~/.openclaw/.env`
-3. Reference it in your openclaw.json config file
-4. OpenClaw can now use this key at runtime
+Providers are defined explicitly in the template:
 
-This design gives you full control — set any variables you need in Balena Cloud, then configure openclaw.json to use only the ones you want.
+```json5
+providers: [
+  { id: "openai", provider: "openai", apiKey: "${OPENAI_API_KEY:-}" },
+  { id: "foundry", provider: "openai", apiKey: "${FOUNDRY_API_KEY:-}", baseURL: "${FOUNDRY_ENDPOINT:-}" },
+  ...
+],
+defaultModel: "${DEFAULT_MODEL_REF:-openai/gpt-5.5}",
+```
 
-### Common Runtime Flags
+Add or modify providers by editing `gateway/config/openclaw.json5.template`, then deploy with `OPENCLAW_RECONFIGURE=true`.
 
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `OPENCLAW_VERSION` | e.g., `2026.2.19` | Install a specific OpenClaw version at boot (see [releases](https://github.com/openclaw/openclaw/releases)) |
-| `OPENCLAW_AUTO_DOCTOR` | `true` | Automatically run `openclaw doctor --fix` before starting to repair configuration issues |
-| `OPENCLAW_GATEWAY_STOP` | `true` | Skip gateway startup; keeps container running for manual intervention (e.g., `openclaw doctor`) |
-| `OPENCLAW_GATEWAY_TOKEN` | custom token | Set a custom authentication token instead of auto-generating |
-| `OPENCLAW_SKILLS` | `skill1,skill2` | Auto-install ClawHub skills at boot |
-| `OPENCLAW_PLUGINS` | `plugin1,plugin2` | Auto-install plugins at boot |
-| `OPENCLAW_KEEP_VERSIONS` | e.g., `3` | Number of version snapshots to keep for rollback (default: 3) |
-| `HAPROXY_CERT_CN` | e.g., `openclaw.local` | Common Name for the self-signed TLS certificate (default: `openclaw.local`) |
+### Configuring OpenClaw itself
 
-### Troubleshooting: Config Issues
+Environment variables set in balenaCloud are exported to `~/.openclaw/.env` at boot. The template references them directly. Common config variables:
 
-If OpenClaw fails to start due to a corrupted `openclaw.json` configuration, you have two options:
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENCLAW_GATEWAY_PORT` | `8080` | Internal gateway listen port |
+| `OPENCLAW_GATEWAY_TOKEN` | auto-generated | Auth token for control UI |
+| `DEFAULT_MODEL_REF` | `openai/gpt-5.5` | Default AI model |
 
-**Option 1: Auto-fix (recommended)**
-1. Set `OPENCLAW_AUTO_DOCTOR=true` in Device Variables
-2. Restart the container
-3. The container will automatically run `openclaw doctor --fix` before starting the gateway and repair any config issues
-4. Once fixed, remove `OPENCLAW_AUTO_DOCTOR` and restart to prevent unnecessary doctor runs on subsequent boots
+---
 
-**Option 2: Manual fix**
-1. Set `OPENCLAW_GATEWAY_STOP=true` in Device Variables
-2. Restart the container (do not update the service)
-3. Once the container is running, open a terminal and run:
-   ```bash
-   docker exec <container-id> openclaw doctor
-   ```
-4. Follow the interactive prompts to repair your configuration
-5. Remove `OPENCLAW_GATEWAY_STOP` and restart to resume normal operation
+## Updating
+
+### Update OpenClaw version
+
+Set `OPENCLAW_VERSION` to a specific release (e.g. `2026.5.20`) and restart. The container downloads and activates it, cloning config/skills/plugins from the previous version.
+
+Leave `OPENCLAW_VERSION` unset to use the version baked into the Docker image.
+
+### Version snapshots & rollback
+
+Each version is a **self-contained snapshot** under `/data/openclaw/versions/{version}/` containing the binary, config, skills, and plugins.
+
+- **Upgrade:** Previous snapshot is cloned, new binary installed
+- **Rollback:** Change `OPENCLAW_VERSION` back — the old snapshot activates as-is
+- **Auto-prune:** Old snapshots auto-deleted. Set `OPENCLAW_KEEP_VERSIONS` (default: 3)
+
+### Push config changes
+
+1. Edit the template or haproxy config
+2. Run `balena push <fleet>`
+3. For config template changes: set `OPENCLAW_RECONFIGURE=true`, reboot, then remove it (optional — only needed when the template changes)
+
+---
+
+## Runtime Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENCLAW_VERSION` | Install specific OpenClaw release |
+| `OPENCLAW_RECONFIGURE` | Force re-render config from template on next boot |
+| `OPENCLAW_AUTO_DOCTOR` | Run `openclaw doctor --fix` before starting |
+| `OPENCLAW_GATEWAY_STOP` | Skip startup; keep container alive for debugging |
+| `OPENCLAW_GATEWAY_TOKEN` | Custom auth token |
+| `OPENCLAW_SKILLS` | Comma-separated ClawHub skill slugs |
+| `OPENCLAW_PLUGINS` | Comma-separated npm plugin packages |
+| `OPENCLAW_KEEP_VERSIONS` | Number of version snapshots to keep (default: 3) |
+| `HAPROXY_CERT_CN` | CN for self-signed cert (default: `openclaw.local`) |
+
+---
+
+## Storage
+
+| Volume | Mount | Contents |
+|--------|-------|----------|
+| `openclaw_data` | `/data` | Version snapshots, config, gateway token |
+| `openclaw_home` | `/root` | Home directory (skills, plugins, sessions) |
+| `proxy_certs` | `/etc/haproxy/certs` | Self-signed TLS certificate |
+
+```
+/data/openclaw/
+├── versions/2026.5.20/
+│   ├── npm-global/         # openclaw binary
+│   ├── openclaw.json       # rendered config
+│   └── openclaw-home/      # .openclaw/ data
+├── gateway.token
+└── .current-version
+```
+
+---
+
+## Security
+
+- HTTPS via HAProxy with self-signed TLS (both LAN and balena tunnel)
+- Balena public URL traffic served directly on port 80 (Balena terminates TLS upstream)
+- API keys stored in balenaCloud Device Variables, never in git
+- Origin and Host headers preserved through the proxy for correct redirect behavior
+
+---
+
+## Local Development
+
+```bash
+export OPENAI_API_KEY=sk-...
+export DEFAULT_MODEL_REF=openai/gpt-5.5
+docker compose up --build
+```
+
+Then open `https://localhost` (accept the self-signed cert).
+
+---
+
+## License
+
+MIT
 
 ---
 
