@@ -51,13 +51,14 @@ services:
       # Comma-separated plugin npm packages to install at boot (e.g. "@openclaw/voice-call")
       - OPENCLAW_PLUGINS=
 
-      # --- Example provider API keys (set via balena Device Variables) ---
+      # --- Provider API keys (set via balena Device Variables) ---
       # All environment variables are automatically exported to OpenClaw.
       # These are just examples - add any variables you need in Balena Cloud:
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - FOUNDRY_API_KEY=${FOUNDRY_API_KEY:-}
+      - FOUNDRY_ENDPOINT=${FOUNDRY_ENDPOINT:-}
 
 volumes:
   openclaw_data:

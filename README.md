@@ -44,12 +44,21 @@ Set at least one provider's key:
 | Variable | Provider |
 |----------|----------|
 | `OPENAI_API_KEY` | OpenAI |
-| `ANTHROPIC_API_KEY` | Anthropic (Claude) |
 | `GOOGLE_API_KEY` | Google Gemini |
 | `OPENROUTER_API_KEY` | OpenRouter |
-| `FOUNDRY_API_KEY` + `FOUNDRY_ENDPOINT` | Microsoft Foundry (custom endpoint) |
+| `FOUNDRY_API_KEY` + `FOUNDRY_ENDPOINT` | Microsoft Foundry (Azure OpenAI) |
 
-All API keys are injected into `openclaw.json` and also exported to the runtime environment. You can add other provider config by editing `gateway/config/openclaw.json5.template`.
+All API keys are injected into `openclaw.json` and also exported to the runtime environment.
+
+#### Microsoft Foundry setup
+
+Foundry (Azure OpenAI) uses a custom endpoint — you need **both** variables:
+
+1. `FOUNDRY_ENDPOINT` — your Azure OpenAI endpoint URL, e.g. `https://my-resource.openai.azure.com/openai/v1/`
+2. `FOUNDRY_API_KEY` — your Azure OpenAI API key
+3. Set `DEFAULT_MODEL_REF` to `foundry/gpt-4o` (or your deployed model name)
+
+You can add other providers or custom endpoints by editing `gateway/config/openclaw.json5.template`.
 
 ### 3. Open the UI
 
@@ -77,8 +86,9 @@ Providers are defined explicitly in the template:
 ```json5
 providers: [
   { id: "openai", provider: "openai", apiKey: "${OPENAI_API_KEY:-}" },
+  { id: "google", provider: "google", apiKey: "${GOOGLE_API_KEY:-}" },
+  { id: "openrouter", provider: "openrouter", apiKey: "${OPENROUTER_API_KEY:-}" },
   { id: "foundry", provider: "openai", apiKey: "${FOUNDRY_API_KEY:-}", baseURL: "${FOUNDRY_ENDPOINT:-}" },
-  ...
 ],
 defaultModel: "${DEFAULT_MODEL_REF:-openai/gpt-5.5}",
 ```
