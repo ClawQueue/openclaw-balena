@@ -53,19 +53,14 @@
 
     // Microsoft Foundry – Azure-hosted OpenAI-compatible models
     // Set FOUNDRY_ENDPOINT to your Azure OpenAI endpoint, e.g.:
-    //   https://<your-resource>.services.ai.azure.com
+    //   https://<your-resource>.openai.azure.com/openai/v1/
     // Set FOUNDRY_API_KEY to your Azure OpenAI key.
-    //
-    // Uses the microsoft-foundry provider. For the Completions API endpoint:
-    // set api: "openai-completions" on both provider and models.
-    // For Responses API: use "openai-responses" instead.
     {
       id: "foundry",
       provider: "microsoft-foundry",
-      api: "openai-completions",
+      authHeader: true,
       apiKey: "${FOUNDRY_API_KEY}",
       baseURL: "${FOUNDRY_ENDPOINT}",
-      authHeader: true,
       models: [
         {
           id: "gpt-5.4",
@@ -102,4 +97,21 @@
   //   "foundry/gpt-4o"   (if you named your Foundry provider "foundry")
   //
   defaultModel: "${DEFAULT_MODEL_REF}",
+
+  // ── Agent defaults ───────────────────────────────────────────────────────
+  //
+  // Configure agent behavior, including compaction (context management).
+  // Azure/Foundry endpoints may not support OpenAI Responses API features
+  // like server-side compaction. We use the default (local) compaction mode.
+  //
+  agents: {
+    defaults: {
+      compaction: {
+        mode: "safeguard",
+        // Use default local compaction, not server-side (which requires
+        // OpenAI Responses API support that Azure/Foundry may lack).
+        provider: "default",
+      },
+    },
+  },
 }
