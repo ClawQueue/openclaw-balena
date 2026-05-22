@@ -255,6 +255,9 @@ if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
 
   envsubst < /app/openclaw.json5.template > "$OPENCLAW_CONFIG_PATH"
   echo "✓ Config rendered from template"
+  echo "=== DEBUG: Rendered config ==="
+  cat "$OPENCLAW_CONFIG_PATH" | head -80
+  echo "=== DEBUG END ==="
 else
   echo "Using existing config at $OPENCLAW_CONFIG_PATH"
 fi
