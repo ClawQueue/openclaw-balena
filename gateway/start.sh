@@ -263,19 +263,9 @@ if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
 
   echo "✓ Config rendered from template"
 
-  echo "=== RENDERED CONFIG (first 60 lines) ==="
-  head -60 "$OPENCLAW_CONFIG_PATH"
-  echo "=== END RENDERED CONFIG ==="
-
-  echo "=== RENDERED CONFIG (lines 60-80 containing providers/foundry) ==="
-  sed -n '60,80p' "$OPENCLAW_CONFIG_PATH"
-  echo "=== END ==="
-
-  # Check for any remaining ${} patterns
-  if grep -n '\${' "$OPENCLAW_CONFIG_PATH"; then
+  # Check for any remaining ${} patterns (should be none after sanitization)
+  if grep -q '\${' "$OPENCLAW_CONFIG_PATH" 2>/dev/null; then
     echo "⚠ WARNING: Unresolved variable patterns remain in config!"
-  else
-    echo "✓ No unresolved variable patterns in config"
   fi
 else
   echo "Using existing config at $OPENCLAW_CONFIG_PATH"

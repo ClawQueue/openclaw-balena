@@ -1,6 +1,6 @@
 { // OpenClaw config (JSON5). This file is a *template* rendered at runtime.
   //
-  // All ${VAR_NAME} placeholders are filled from balena device/environment variables.
+  // All {VAR_NAME} placeholders are filled from balena device/environment variables.
   // Defaults are set in start.sh before envsubst runs.
   // API keys should be set as balena Device Variables, NEVER hardcoded here.
   //
