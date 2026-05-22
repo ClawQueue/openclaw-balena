@@ -176,6 +176,13 @@ NPM_PERSIST_DIR="$VERSION_DIR/npm-global"
 mkdir -p "$NPM_PERSIST_DIR"
 export PATH="${NPM_PERSIST_DIR}/bin:${PATH}"
 
+# Symlink legacy shared path so interactive shells (docker exec) resolve correctly.
+# The Dockerfile ENV PATH includes /data/openclaw/npm-global/bin which was the
+# pre-per-version-snapshot location. Point it at the active snapshot.
+LEGACY_NPM_GLOBAL="/data/openclaw/npm-global"
+rm -rf "$LEGACY_NPM_GLOBAL" 2>/dev/null || true
+ln -sfn "$NPM_PERSIST_DIR" "$LEGACY_NPM_GLOBAL"
+
 # Version-specific home directory (~/.openclaw data)
 VERSION_HOME="$VERSION_DIR/openclaw-home"
 mkdir -p "$VERSION_HOME"
@@ -216,7 +223,18 @@ if [ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
   echo "Gateway token: $OPENCLAW_GATEWAY_TOKEN"
 fi
 
-# ── 3. Render config from template on first run ──────────────────────────
+# ── 3. Render config from template ─────────────────────────────────────────
+#
+# On first boot: renders from template.
+# On subsequent boots: uses existing config.
+# Set OPENCLAW_RECONFIGURE=true to force re-render from the updated template
+# while preserving the gateway token (so auth doesn't break).
+#
+if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ "${OPENCLAW_RECONFIGURE:-false}" = "true" ]; then
+  echo "⚠ OPENCLAW_RECONFIGURE is set – backing up existing config and re-rendering..."
+  cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
+fi
+
 if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
   echo "Rendering initial config from template..."
   envsubst < /app/openclaw.json5.template > "$OPENCLAW_CONFIG_PATH"

@@ -1,16 +1,82 @@
 { // OpenClaw config (JSON5). This file is a *template* rendered at runtime via envsubst.
+  //
+  // All ${VAR_NAME} placeholders are filled from balena device/environment variables.
+  // API keys should be set as balena Device Variables, NEVER hardcoded here.
+  //
+  // Recommended balena Device Variables:
+  //   OPENCLAW_GATEWAY_PORT    – gateway listen port (default: 8080)
+  //   OPENCLAW_GATEWAY_TOKEN   – auth token for the control UI (auto-generated if unset)
+  //   DEFAULT_MODEL_REF        – which model to use, e.g. "openai/gpt-5.5"
+  //   OPENAI_API_KEY           – OpenAI API key
+  //   ANTHROPIC_API_KEY        – Anthropic API key
+  //   GOOGLE_API_KEY           – Google Gemini API key
+  //   OPENROUTER_API_KEY       – OpenRouter API key
+  //   FOUNDRY_API_KEY          – Microsoft Foundry API key
+  //   FOUNDRY_ENDPOINT         – Microsoft Foundry endpoint URL
+  //
   gateway: {
     mode: "local",
     port: ${OPENCLAW_GATEWAY_PORT},
     auth: { token: "${OPENCLAW_GATEWAY_TOKEN}" },
-    // HAProxy rewrites Origin to loopback; this is a fallback safety net
+    // Allowed origins for the control UI (CORS).
+    // The start.sh script will also add the balena public URL dynamically.
     controlUi: { allowedOrigins: ["http://127.0.0.1:${OPENCLAW_GATEWAY_PORT}"] }
   },
 
-  // Model configuration uses environment variables set in balenaCloud
-  // Set your API key and model reference via Device Variables:
-  //   - OPENAI_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY
-  //   - DEFAULT_MODEL_REF (e.g., "openai/gpt-4o-mini", "anthropic/claude-sonnet-4-20250514")
+  // ── Model providers ──────────────────────────────────────────────────────
   //
-  // OpenClaw will automatically detect and use the configured provider.
+  // Add providers here. API keys reference balena device variables.
+  // Custom endpoints (like Foundry) go in the provider's baseURL / apiKey fields.
+  //
+  providers: [
+    // OpenAI – works with both OpenAI and any OpenAI-compatible endpoint
+    {
+      id: "openai",
+      provider: "openai",
+      apiKey: "${OPENAI_API_KEY:-}",
+      // baseURL: "${OPENAI_CUSTOM_BASE_URL:-}", // uncomment for custom endpoints
+    },
+
+    // Anthropic (Claude)
+    {
+      id: "anthropic",
+      provider: "anthropic",
+      apiKey: "${ANTHROPIC_API_KEY:-}",
+    },
+
+    // Google (Gemini)
+    {
+      id: "google",
+      provider: "google",
+      apiKey: "${GOOGLE_API_KEY:-}",
+    },
+
+    // OpenRouter – single API for many models
+    {
+      id: "openrouter",
+      provider: "openrouter",
+      apiKey: "${OPENROUTER_API_KEY:-}",
+    },
+
+    // Microsoft Foundry – Azure-hosted models
+    {
+      id: "foundry",
+      provider: "openai",
+      apiKey: "${FOUNDRY_API_KEY:-}",
+      baseURL: "${FOUNDRY_ENDPOINT:-}",
+    },
+  ],
+
+  // ── Default model ────────────────────────────────────────────────────────
+  //
+  // Set via balena Device Variable: DEFAULT_MODEL_REF
+  // Examples:
+  //   "openai/gpt-5.5"
+  //   "openai/gpt-4o-mini"
+  //   "anthropic/claude-sonnet-4-20250514"
+  //   "google/gemini-2.5-pro"
+  //   "openrouter/openai/gpt-4o"
+  //   "foundry/gpt-4o"   (if you named your Foundry provider "foundry")
+  //
+  defaultModel: "${DEFAULT_MODEL_REF:-openai/gpt-5.5}",
 }
