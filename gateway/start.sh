@@ -233,6 +233,7 @@ fi
 if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ "${OPENCLAW_RECONFIGURE:-false}" = "true" ]; then
   echo "⚠ OPENCLAW_RECONFIGURE is set – backing up existing config and re-rendering..."
   cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
+  rm -f "$OPENCLAW_CONFIG_PATH"
 fi
 
 if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
