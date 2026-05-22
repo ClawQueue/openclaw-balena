@@ -239,29 +239,23 @@ fi
 if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
   echo "Rendering initial config from template..."
 
-  # Set defaults for all template variables
-  # envsubst only handles basic ${VAR}, not ${VAR:-default}.
-  # Balena sets unconfigured variables to empty string, so we use :- test.
-  OPENAI_API_KEY="${OPENAI_API_KEY:-}"
-  GOOGLE_API_KEY="${GOOGLE_API_KEY:-}"
-  OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
-  FOUNDRY_API_KEY="${FOUNDRY_API_KEY:-}"
-  FOUNDRY_ENDPOINT="${FOUNDRY_ENDPOINT:-}"
-  DEFAULT_MODEL_REF="${DEFAULT_MODEL_REF:-openai/gpt-5.5}"
+  # Set defaults for all template variables.
+  # envsubst (gettext-base) only handles basic ${VAR}, NOT ${VAR:-default}.
+  # So we set bash defaults here and use plain ${VAR} in the template.
+  : "${OPENAI_API_KEY:=}"
+  : "${GOOGLE_API_KEY:=}"
+  : "${OPENROUTER_API_KEY:=}"
+  : "${FOUNDRY_API_KEY:=}"
+  : "${FOUNDRY_ENDPOINT:=}"
+  : "${DEFAULT_MODEL_REF:=openai/gpt-5.5}"
 
-  # Export all to make them available for envsubst
+  # Export to make available for envsubst
   export OPENAI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY
   export FOUNDRY_API_KEY FOUNDRY_ENDPOINT DEFAULT_MODEL_REF
 
+  # Also set the vars for envsubst (it reads from the env)
   envsubst < /app/openclaw.json5.template > "$OPENCLAW_CONFIG_PATH"
   echo "✓ Config rendered from template"
-  echo "=== DEBUG: Lines 1-30 ==="
-  head -30 "$OPENCLAW_CONFIG_PATH"
-  echo "=== DEBUG: Lines 50-80 ==="
-  sed -n '50,80p' "$OPENCLAW_CONFIG_PATH"
-  echo "=== DEBUG: Last 10 lines ==="
-  tail -10 "$OPENCLAW_CONFIG_PATH"
-  echo "=== DEBUG END ==="
 else
   echo "Using existing config at $OPENCLAW_CONFIG_PATH"
 fi
