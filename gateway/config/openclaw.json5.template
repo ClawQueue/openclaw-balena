@@ -1,6 +1,7 @@
-{ // OpenClaw config (JSON5). This file is a *template* rendered at runtime via envsubst.
+{ // OpenClaw config (JSON5). This file is a *template* rendered at runtime.
   //
   // All ${VAR_NAME} placeholders are filled from balena device/environment variables.
+  // Defaults are set in start.sh before envsubst runs.
   // API keys should be set as balena Device Variables, NEVER hardcoded here.
   //
   // Recommended balena Device Variables:
@@ -32,22 +33,22 @@
     {
       id: "openai",
       provider: "openai",
-      apiKey: "${OPENAI_API_KEY:-}",
-      // baseURL: "${OPENAI_CUSTOM_BASE_URL:-}", // uncomment for custom endpoints
+      apiKey: "${OPENAI_API_KEY}",
+      // baseURL: "${OPENAI_CUSTOM_BASE_URL}", // uncomment for custom endpoints
     },
 
     // Google (Gemini)
     {
       id: "google",
       provider: "google",
-      apiKey: "${GOOGLE_API_KEY:-}",
+      apiKey: "${GOOGLE_API_KEY}",
     },
 
     // OpenRouter – single API for many models
     {
       id: "openrouter",
       provider: "openrouter",
-      apiKey: "${OPENROUTER_API_KEY:-}",
+      apiKey: "${OPENROUTER_API_KEY}",
     },
 
     // Microsoft Foundry – Azure-hosted OpenAI-compatible models
@@ -57,8 +58,8 @@
     {
       id: "foundry",
       provider: "openai",
-      apiKey: "${FOUNDRY_API_KEY:-}",
-      baseURL: "${FOUNDRY_ENDPOINT:-}",
+      apiKey: "${FOUNDRY_API_KEY}",
+      baseURL: "${FOUNDRY_ENDPOINT}",
     },
   ],
 
@@ -72,5 +73,5 @@
   //   "openrouter/openai/gpt-4o"
   //   "foundry/gpt-4o"   (if you named your Foundry provider "foundry")
   //
-  defaultModel: "${DEFAULT_MODEL_REF:-openai/gpt-5.5}",
+  defaultModel: "${DEFAULT_MODEL_REF}",
 }

@@ -238,7 +238,23 @@ fi
 
 if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
   echo "Rendering initial config from template..."
+
+  # Set defaults for all template variables
+  # envsubst only handles basic ${VAR}, not ${VAR:-default}.
+  # Balena sets unconfigured variables to empty string, so we use :- test.
+  OPENAI_API_KEY="${OPENAI_API_KEY:-}"
+  GOOGLE_API_KEY="${GOOGLE_API_KEY:-}"
+  OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
+  FOUNDRY_API_KEY="${FOUNDRY_API_KEY:-}"
+  FOUNDRY_ENDPOINT="${FOUNDRY_ENDPOINT:-}"
+  DEFAULT_MODEL_REF="${DEFAULT_MODEL_REF:-openai/gpt-5.5}"
+
+  # Export all to make them available for envsubst
+  export OPENAI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY
+  export FOUNDRY_API_KEY FOUNDRY_ENDPOINT DEFAULT_MODEL_REF
+
   envsubst < /app/openclaw.json5.template > "$OPENCLAW_CONFIG_PATH"
+  echo "✓ Config rendered from template"
 else
   echo "Using existing config at $OPENCLAW_CONFIG_PATH"
 fi
