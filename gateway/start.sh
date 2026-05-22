@@ -230,10 +230,23 @@ fi
 # Set OPENCLAW_RECONFIGURE=true to force re-render from the updated template
 # while preserving the gateway token (so auth doesn't break).
 #
+# Also auto-re-render when the template is newer than the rendered config
+# (detects config changes pushed via balena).
+TEMPLATE="/app/openclaw.json5.template"
+RENDER_NEEDED=false
+
 if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ "${OPENCLAW_RECONFIGURE:-false}" = "true" ]; then
   echo "⚠ OPENCLAW_RECONFIGURE is set – backing up existing config and re-rendering..."
   cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
   rm -f "$OPENCLAW_CONFIG_PATH"
+fi
+
+if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ -f "$TEMPLATE" ]; then
+  if [ "$TEMPLATE" -nt "$OPENCLAW_CONFIG_PATH" ]; then
+    echo "⚠ Template updated – re-rendering config..."
+    cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
+    rm -f "$OPENCLAW_CONFIG_PATH"
+  fi
 fi
 
 if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
