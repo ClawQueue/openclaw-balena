@@ -60,6 +60,28 @@
       provider: "openai",
       apiKey: "${FOUNDRY_API_KEY}",
       baseURL: "${FOUNDRY_ENDPOINT}",
+      models: [
+        {
+          id: "gpt-5.4",
+          name: "GPT-5.4 (Foundry)",
+          api: "openai-completions",
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128000,
+          maxTokens: 16384,
+        },
+        {
+          id: "grok-4.3",
+          name: "Grok 4.3 (Foundry)",
+          api: "openai-completions",
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 128000,
+          maxTokens: 16384,
+        },
+      ],
     },
   ],
 
@@ -74,4 +96,21 @@
   //   "foundry/gpt-4o"   (if you named your Foundry provider "foundry")
   //
   defaultModel: "${DEFAULT_MODEL_REF}",
+
+  // ── Agent defaults ───────────────────────────────────────────────────────
+  //
+  // Configure agent behavior, including compaction (context management).
+  // Azure/Foundry endpoints may not support OpenAI Responses API features
+  // like server-side compaction. We use the default (local) compaction mode.
+  //
+  agents: {
+    defaults: {
+      compaction: {
+        mode: "safeguard",
+        // Use default local compaction, not server-side (which requires
+        // OpenAI Responses API support that Azure/Foundry may lack).
+        provider: "default",
+      },
+    },
+  },
 }
