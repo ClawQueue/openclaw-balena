@@ -53,24 +53,25 @@
 
     // Microsoft Foundry – Azure-hosted OpenAI-compatible models
     // Set FOUNDRY_ENDPOINT to your Azure OpenAI endpoint, e.g.:
-    //   https://<your-resource>.openai.azure.com/openai/v1/
+    //   https://<your-resource>.services.ai.azure.com
     // Set FOUNDRY_API_KEY to your Azure OpenAI key.
     //
-    // Important: The Foundry/Azure API has strict tool type validation that
-    // doesn't support all OpenAI Responses API features. We use the Chat
-    // Completions API (openai-completions) for broader compatibility.
-    // Disable reasoning/thinking to avoid sending unsupported block types.
+    // Uses the microsoft-foundry provider with openai-responses API (confirmed
+    // working configuration pattern). The provider type must be
+    // "microsoft-foundry" not "openai" to avoid Azure auto-detection
+    // overriding the API mode.
     {
       id: "foundry",
-      provider: "openai",
-      api: "openai-completions",
+      provider: "microsoft-foundry",
+      api: "openai-responses",
       apiKey: "${FOUNDRY_API_KEY}",
       baseURL: "${FOUNDRY_ENDPOINT}",
+      authHeader: true,
       models: [
         {
           id: "gpt-5.4",
           name: "GPT-5.4 (Foundry)",
-          api: "openai-completions",
+          api: "openai-responses",
           reasoning: false,
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -80,7 +81,7 @@
         {
           id: "grok-4.3",
           name: "Grok 4.3 (Foundry)",
-          api: "openai-completions",
+          api: "openai-responses",
           reasoning: false,
           input: ["text"],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -103,6 +104,20 @@
   //
   defaultModel: "${DEFAULT_MODEL_REF}",
 
-  // ── Plugin configuration ─────────────────────────────────────────────────
-  plugins: {
-    entries: {
+  // ── Agent defaults ───────────────────────────────────────────────────────
+  //
+  // Configure agent behavior, including compaction (context management).
+  // Azure/Foundry endpoints may not support OpenAI Responses API features
+  // like server-side compaction. We use the default (local) compaction mode.
+  //
+  agents: {
+    defaults: {
+      compaction: {
+        mode: "safeguard",
+        // Use default local compaction, not server-side (which requires
+        // OpenAI Responses API support that Azure/Foundry may lack).
+        provider: "default",
+      },
+    },
+  },
+}
