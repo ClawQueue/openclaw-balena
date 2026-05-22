@@ -239,6 +239,13 @@ if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ "${OPENCLAW_RECONFIGURE:-false}" = "true"
   echo "⚠ OPENCLAW_RECONFIGURE is set – backing up existing config and re-rendering..."
   cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
   rm -f "$OPENCLAW_CONFIG_PATH"
+  # Also remove the OpenClaw home directory's internal backups so doctor
+  # doesn't auto-restore a corrupted "last-known-good" config.
+  if [ -d "$VERSION_HOME" ]; then
+    echo "  Cleaning internal backups in $VERSION_HOME..."
+    rm -rf "$VERSION_HOME"
+    mkdir -p "$VERSION_HOME"
+  fi
 fi
 
 if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ -f "$TEMPLATE" ]; then
@@ -246,6 +253,12 @@ if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ -f "$TEMPLATE" ]; then
     echo "⚠ Template updated – re-rendering config..."
     cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
     rm -f "$OPENCLAW_CONFIG_PATH"
+    # Also clean internal backups so we start fresh
+    if [ -d "$VERSION_HOME" ]; then
+      echo "  Cleaning internal backups in $VERSION_HOME..."
+      rm -rf "$VERSION_HOME"
+      mkdir -p "$VERSION_HOME"
+    fi
   fi
 fi
 
