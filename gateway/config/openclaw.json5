@@ -1,0 +1,26 @@
+{
+  // Vanilla OpenClaw config.
+  // start.sh owns gateway access plumbing; providers/models remain user-managed.
+  // Add providers/models via: openclaw onboard | openclaw configure | Control UI
+
+  gateway: {
+    mode: "local",
+    port: 8080,
+    // start.sh replaces this with the persisted token. Keeping it literal
+    // avoids env resolution failures in Balena terminal sessions.
+    auth: { mode: "token", token: "changeme" },
+    trustedProxies: ["127.0.0.1"],
+    controlUi: {
+      // start.sh refreshes this list with LAN, localhost, balena public URL,
+      // and optional OPENCLAW_CONTROL_UI_ORIGINS values on every boot.
+      allowedOrigins: ["http://127.0.0.1:8080"],
+      allowInsecureAuth: true,
+    },
+  },
+
+  agents: {
+    defaults: {
+      compaction: { mode: "safeguard", provider: "default" },
+    },
+  },
+}

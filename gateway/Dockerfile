@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libopus-dev \
   python3-pip \
   jq \
+  rclone \
   && rm -rf /var/lib/apt/lists/*
 
 # Upgrade npm to latest to ensure native builds use current npm/node-gyp tooling
@@ -32,13 +33,20 @@ RUN if [ "$OPENCLAW_VERSION" = "latest" ]; then \
 # correct openclaw binary even after version upgrades.
 ENV PATH=/data/openclaw/npm-global/bin:$PATH
 
+# Performance: Node compile cache speeds up repeated CLI invocations on ARM.
+# OPENCLAW_NO_RESPAWN keeps gateway restarts in-process (avoids extra process
+# handoffs on small hosts). Both recommended by OpenClaw Pi docs.
+ENV NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
+ENV OPENCLAW_NO_RESPAWN=1
+RUN mkdir -p /var/tmp/openclaw-compile-cache
+
 WORKDIR /app
 
 # Record the version baked into the image for runtime comparison
 RUN openclaw --version 2>/dev/null | head -1 > /app/.openclaw-image-version || echo "unknown" > /app/.openclaw-image-version
 
 COPY start.sh /app/start.sh
-COPY config/openclaw.json5.template /app/openclaw.json5.template
+COPY config/openclaw.json5 /app/openclaw.json5
 
 RUN chmod +x /app/start.sh
 

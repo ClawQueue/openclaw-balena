@@ -15,17 +15,11 @@ assets:
 data:
   applicationEnvironmentVariables:
     - OPENCLAW_GATEWAY_TOKEN: ""
-    - GOOGLE_API_KEY: ""
-    - OPENAI_API_KEY: ""
-    - OPENROUTER_API_KEY: ""
-    - FOUNDRY_API_KEY: ""
-    - FOUNDRY_ENDPOINT: ""
-    - DEFAULT_MODEL_REF: ""
-    - OPENCLAW_RECONFIGURE: ""
+    - OPENCLAW_CONTROL_UI_ORIGINS: ""
+    - OPENCLAW_PUBLIC_ORIGIN: ""
     - OPENCLAW_VERSION: ""
-    - OPENCLAW_SKILLS: ""
-    - OPENCLAW_PLUGINS: ""
     - OPENCLAW_KEEP_VERSIONS: "3"
+    - OPENCLAW_GATEWAY_STOP: "false"
     - HAPROXY_CERT_CN: ""
   defaultDeviceType: raspberrypi4-64
   supportedDeviceTypes:

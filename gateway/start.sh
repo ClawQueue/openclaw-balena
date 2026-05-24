@@ -2,78 +2,255 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# OpenClaw Balena – start script
+# OpenClaw on Balena – start script
 # ---------------------------------------------------------------------------
-# 1. Runtime version management (self-contained snapshots with auto-prune)
-# 2. Token management            (OPENCLAW_GATEWAY_TOKEN)
-# 3. Config rendering             (JSON5 template → openclaw.json)
-# 4. API-key injection            (provider keys → ~/.openclaw/.env)
-# 5. Skills installation          (OPENCLAW_SKILLS env var)
-# 6. Plugins installation         (OPENCLAW_PLUGINS env var)
-# 7. Launch gateway
+# 1. Version management (self-contained snapshots, safe upgrades/rollbacks)
+# 2. Token management (auto-generate + persist)
+# 3. Config deployment (first boot only, never overwrites user edits)
+# 4. Launch gateway
 # ---------------------------------------------------------------------------
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
-# Check if a variable has actual content (not empty / unresolved placeholder).
-# Balena may pass literal "${VAR:-}" when a device variable is not set.
 has_value() {
   local val="$1"
   val="${val//[[:space:]]/}"
   [ -n "$val" ] && [[ ! "$val" =~ \$\{ ]]
 }
 
-# Extract bare semver-ish version from a string like "openclaw version 1.2.3"
-# or "openclaw/1.2.3-4". Returns just the "1.2.3-4" part.
+clean_var() {
+  local val="$1"
+  if has_value "$val"; then
+    echo "$val"
+  else
+    echo ""
+  fi
+}
+
+is_placeholder_token() {
+  local val="$1"
+  val="${val//[[:space:]]/}"
+  case "$val" in
+    ""|changeme|CHANGE_ME|change-me|CHANGE-ME|default|DEFAULT)
+      return 0
+      ;;
+    *'${'*|env:*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+clean_token() {
+  local val="$1"
+  val="$(clean_var "$val")"
+  if is_placeholder_token "$val"; then
+    echo ""
+  else
+    echo "$val"
+  fi
+}
+
 extract_version() {
   echo "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9a-zA-Z]+)*' | head -1
 }
 
-# Return the value only if it has actual content, empty string otherwise.
-clean_var() {
-  local val="$1"
-  if has_value "$val"; then echo "$val"; else echo ""; fi
+extract_gateway_config_token() {
+  local config_path="$1"
+  [ -f "$config_path" ] || return 0
+
+  perl -0ne '
+    if (/gateway\s*:\s*\{(?:(?!controlUi\s*:).)*?auth\s*:\s*\{[^{}]*token\s*:\s*"([^"]+)"/s) {
+      print $1;
+    }
+  ' "$config_path"
 }
 
-# ── Directories & defaults ────────────────────────────────────────────────
+add_origin() {
+  local origin="$1"
+  [ -z "$origin" ] && return 0
 
-# Use /data for Balena persistent storage, fallback for local dev
+  local scheme rest
+  case "$origin" in
+    http://*)
+      scheme="http://"
+      rest="${origin#http://}"
+      ;;
+    https://*)
+      scheme="https://"
+      rest="${origin#https://}"
+      ;;
+    *) return 0 ;;
+  esac
+
+  # Browser Origin values are scheme + host + optional port only. Accept
+  # pasted full URLs like https://uuid.balena-devices.com/ and normalize them.
+  rest="${rest%%/*}"
+  rest="${rest%%\?*}"
+  rest="${rest%%\#*}"
+  [ -z "$rest" ] && return 0
+  origin="${scheme}${rest}"
+
+  case ",${OPENCLAW_ORIGINS}," in
+    *,"$origin",*) ;;
+    *) OPENCLAW_ORIGINS="${OPENCLAW_ORIGINS}${OPENCLAW_ORIGINS:+,}${origin}" ;;
+  esac
+}
+
+add_https_host_origins() {
+  local host="$1"
+  host="${host%.}"
+  [ -z "$host" ] && return 0
+  case "$host" in
+    *[!A-Za-z0-9.-]*) return 0 ;;
+  esac
+
+  add_origin "https://${host}"
+  case "$host" in
+    *.*) ;;
+    *) add_origin "https://${host}.local" ;;
+  esac
+}
+
+build_control_ui_origins_json() {
+  OPENCLAW_ORIGINS=""
+
+  add_origin "http://127.0.0.1:8080"
+  add_origin "http://localhost:8080"
+  add_origin "https://127.0.0.1"
+  add_origin "https://localhost"
+  add_origin "https://openclaw.local"
+
+  local hostname_value
+  hostname_value="$(hostname 2>/dev/null || true)"
+  hostname_value="$(clean_var "$hostname_value")"
+  if [ -n "$hostname_value" ]; then
+    add_https_host_origins "$hostname_value"
+  fi
+
+  local balena_name
+  balena_name="$(clean_var "${BALENA_DEVICE_NAME_AT_INIT:-}")"
+  if [ -n "$balena_name" ]; then
+    add_https_host_origins "$balena_name"
+  fi
+
+  local balena_uuid
+  balena_uuid="$(clean_var "${BALENA_DEVICE_UUID:-}")"
+  if [ -n "$balena_uuid" ]; then
+    add_origin "https://${balena_uuid}.balena-devices.com"
+  fi
+
+  add_origin "$(clean_var "${OPENCLAW_PUBLIC_ORIGIN:-}")"
+
+  local ip
+  for ip in $(hostname -I 2>/dev/null || true); do
+    add_origin "https://${ip}"
+  done
+
+  local custom_origins custom_origin
+  custom_origins="$(clean_var "${OPENCLAW_CONTROL_UI_ORIGINS:-}")"
+  if [ -n "$custom_origins" ]; then
+    IFS=',' read -ra custom_origin_list <<< "$custom_origins"
+    for custom_origin in "${custom_origin_list[@]}"; do
+      custom_origin="$(echo "$custom_origin" | xargs)"
+      add_origin "$custom_origin"
+    done
+  fi
+
+  local json="["
+  local first_origin=1
+  IFS=',' read -ra origin_list <<< "$OPENCLAW_ORIGINS"
+  for origin in "${origin_list[@]}"; do
+    [ -z "$origin" ] && continue
+    if [ "$first_origin" -eq 1 ]; then
+      first_origin=0
+    else
+      json="${json}, "
+    fi
+    json="${json}\"${origin}\""
+  done
+  json="${json}]"
+  echo "$json"
+}
+
+refresh_gateway_access_config() {
+  local config_path="$1"
+  local origins_json="$2"
+  local gateway_token="$3"
+
+  [ -f "$config_path" ] || return 0
+
+  ORIGINS_JSON="$origins_json" GATEWAY_TOKEN="$gateway_token" perl -0pi -e '
+    my $origins = $ENV{ORIGINS_JSON};
+    my $token = $ENV{GATEWAY_TOKEN};
+    $token =~ s/\\/\\\\/g;
+    $token =~ s/"/\\"/g;
+
+    s/(gateway\s*:\s*\{(?:(?!controlUi\s*:).)*?auth\s*:\s*)\{[^{}]*token\s*:\s*"[^"]*"[^{}]*\}/${1}{ mode: "token", token: "$token" }/s;
+
+    if (s/allowedOrigins\s*:\s*\[[^\]]*\]/allowedOrigins: $origins/s) {
+      # replaced existing allowedOrigins
+    } elsif (s/(controlUi\s*:\s*\{)/$1\n      allowedOrigins: $origins,/s) {
+      # inserted into existing controlUi block
+    } elsif (s/(trustedProxies\s*:\s*\[[^\]]*\]\s*,?)/$1\n    controlUi: {\n      allowedOrigins: $origins,\n      allowInsecureAuth: true,\n    },/s) {
+      # inserted after trustedProxies
+    }
+  ' "$config_path"
+}
+
+seed_baked_openclaw() {
+  local install_prefix="$1"
+
+  if [ ! -d /usr/local/lib/node_modules/openclaw ]; then
+    return 1
+  fi
+
+  mkdir -p "$install_prefix/lib/node_modules" "$install_prefix/bin"
+  rm -rf "$install_prefix/lib/node_modules/openclaw"
+  cp -a /usr/local/lib/node_modules/openclaw "$install_prefix/lib/node_modules/"
+
+  local bin
+  for bin in /usr/local/bin/openclaw*; do
+    [ -e "$bin" ] || continue
+    cp -a "$bin" "$install_prefix/bin/"
+  done
+}
+
+# ── Directories ────────────────────────────────────────────────────────────
+
 STATE_DIR="/data/openclaw"
 mkdir -p "$STATE_DIR"
 
 VERSIONS_DIR="$STATE_DIR/versions"
 CURRENT_VERSION_FILE="$STATE_DIR/.current-version"
 KEEP_VERSIONS="${OPENCLAW_KEEP_VERSIONS:-3}"
+KEEP_VERSIONS="$(clean_var "$KEEP_VERSIONS")"
+KEEP_VERSIONS="${KEEP_VERSIONS:-3}"
 mkdir -p "$VERSIONS_DIR"
 
-# ── 1. Runtime OpenClaw version management ────────────────────────────────
+# ── 1. Version management ──────────────────────────────────────────────────
 #
-# Each version is a fully self-contained snapshot:
-#   versions/X/npm-global/      – openclaw binary + node_modules
-#   versions/X/openclaw.json    – gateway config
-#   versions/X/openclaw-home/   – .openclaw/ data (skills, plugins, memory)
+# Each version is a self-contained snapshot:
+#   versions/X/npm-global/    – openclaw binary + node_modules
+#   versions/X/openclaw.json  – gateway config
+#   versions/X/openclaw-home/ – .openclaw data (memories, skills, plugins)
 #
-# On upgrade: clone previous snapshot (config + home), install new binary.
-# On rollback: switch to existing snapshot (everything untouched).
-# Auto-prune: keep last N versions (OPENCLAW_KEEP_VERSIONS, default 3).
-#
+# Upgrade: clone previous snapshot (config + home), install new binary.
+# Rollback: switch to existing snapshot (everything untouched).
+# Auto-prune: keep last N versions.
 
-# Get the currently active version
 CURRENT_VERSION="unknown"
-if [ -f "$CURRENT_VERSION_FILE" ]; then
-  CURRENT_VERSION="$(cat "$CURRENT_VERSION_FILE")"
-fi
+[ -f "$CURRENT_VERSION_FILE" ] && CURRENT_VERSION="$(cat "$CURRENT_VERSION_FILE")"
 
-# Get desired version from env var
+IMAGE_VERSION="$(extract_version "$(cat /app/.openclaw-image-version 2>/dev/null || true)")"
+IMAGE_VERSION="${IMAGE_VERSION:-unknown}"
+
 DESIRED_VERSION="$(clean_var "${OPENCLAW_VERSION:-}")"
 DESIRED_VERSION="${DESIRED_VERSION#v}"
 
-# If no version set, use the one baked in the image
 if [ -z "$DESIRED_VERSION" ]; then
-  RAW_VERSION="$(openclaw --version 2>/dev/null | head -1 || echo "unknown")"
-  DESIRED_VERSION="$(extract_version "$RAW_VERSION")"
-  DESIRED_VERSION="${DESIRED_VERSION:-unknown}"
-  echo "OpenClaw version: ${DESIRED_VERSION} (from image, no OPENCLAW_VERSION override set)"
+  DESIRED_VERSION="$IMAGE_VERSION"
+  echo "OpenClaw version: ${DESIRED_VERSION} (from image)"
 fi
 
 VERSION_DIR="$VERSIONS_DIR/$DESIRED_VERSION"
@@ -81,348 +258,193 @@ PREVIOUS_VERSION_DIR="$VERSIONS_DIR/$CURRENT_VERSION"
 
 if [ "$CURRENT_VERSION" != "$DESIRED_VERSION" ]; then
   echo "╔═══════════════════════════════════════════════════════════════╗"
-  echo "║  OpenClaw version change detected                           ║"
-  echo "║  Current : ${CURRENT_VERSION}"
-  echo "║  Target  : ${DESIRED_VERSION}"
+  echo "║  Version change: ${CURRENT_VERSION} → ${DESIRED_VERSION}"
   echo "╚═══════════════════════════════════════════════════════════════╝"
 
   if [ -d "$VERSION_DIR" ]; then
-    # Version directory exists — rollback, use snapshot as-is
     echo "Version ${DESIRED_VERSION} already installed (rollback, using existing snapshot)"
   else
-    # New version — clone snapshot from previous version, then install new binary
     mkdir -p "$VERSION_DIR"
 
     if [ -d "$PREVIOUS_VERSION_DIR" ]; then
-      echo "Cloning snapshot from ${CURRENT_VERSION} to ${DESIRED_VERSION}..."
-      # Clone everything except npm-global (will be freshly installed)
+      echo "Cloning snapshot from ${CURRENT_VERSION}..."
       for item in "$PREVIOUS_VERSION_DIR"/*; do
         [ ! -e "$item" ] && continue
         basename_item="$(basename "$item")"
         [ "$basename_item" = "npm-global" ] && continue
-        if cp -a "$item" "$VERSION_DIR/"; then
-          echo "  cloned: ${basename_item}"
-        fi
+        cp -a "$item" "$VERSION_DIR/" && echo "  cloned: ${basename_item}"
       done
       echo "✓ Snapshot cloned"
     else
-      echo "No previous version to clone from (fresh install)"
+      echo "Fresh install (no previous version)"
     fi
 
-    # Install the new version binary
-    echo "Installing openclaw@${DESIRED_VERSION}..."
     INSTALL_PREFIX="$VERSION_DIR/npm-global"
     mkdir -p "$INSTALL_PREFIX"
 
-    if npm install -g --prefix "$INSTALL_PREFIX" --loglevel verbose "openclaw@${DESIRED_VERSION}"; then
-      NEW_VERSION="$(extract_version "$(PATH="$INSTALL_PREFIX/bin:$PATH" openclaw --version 2>/dev/null | head -1)")"
-      echo "✓ OpenClaw ${NEW_VERSION:-unknown} installed"
+    if [ "$DESIRED_VERSION" = "$IMAGE_VERSION" ] && seed_baked_openclaw "$INSTALL_PREFIX"; then
+      echo "Seeded OpenClaw ${DESIRED_VERSION} from image"
+    elif npm install -g --prefix "$INSTALL_PREFIX" --loglevel verbose "openclaw@${DESIRED_VERSION}"; then
+      echo "✓ OpenClaw ${DESIRED_VERSION} installed"
     else
-      echo "⚠ Failed to install openclaw@${DESIRED_VERSION} – falling back to previous version"
+      echo "⚠ Install failed"
       rm -rf "$VERSION_DIR"
-      VERSION_DIR="$PREVIOUS_VERSION_DIR"
-      DESIRED_VERSION="$CURRENT_VERSION"
+      if [ -d "$PREVIOUS_VERSION_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ]; then
+        echo "Falling back to previous version: ${CURRENT_VERSION}"
+        VERSION_DIR="$PREVIOUS_VERSION_DIR"
+        DESIRED_VERSION="$CURRENT_VERSION"
+      else
+        echo "Falling back to image-baked version: ${IMAGE_VERSION}"
+        DESIRED_VERSION="$IMAGE_VERSION"
+        VERSION_DIR="$VERSIONS_DIR/$DESIRED_VERSION"
+        INSTALL_PREFIX="$VERSION_DIR/npm-global"
+        mkdir -p "$INSTALL_PREFIX"
+        seed_baked_openclaw "$INSTALL_PREFIX"
+      fi
     fi
   fi
 
-  # Record current version and touch dir for mtime-based pruning
   echo -n "$DESIRED_VERSION" > "$CURRENT_VERSION_FILE"
   touch "$VERSION_DIR" 2>/dev/null || true
 
-  # Auto-prune old versions (keep last N by modification time)
+  # Auto-prune old versions
   if [ "$KEEP_VERSIONS" -gt 0 ] 2>/dev/null; then
     VERSION_COUNT=$(find "$VERSIONS_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
     if [ "$VERSION_COUNT" -gt "$KEEP_VERSIONS" ]; then
       echo "Pruning old versions (keeping last ${KEEP_VERSIONS})..."
       find "$VERSIONS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
-        | sort -rn \
-        | tail -n +"$((KEEP_VERSIONS + 1))" \
-        | cut -d' ' -f2- \
+        | sort -rn | tail -n +"$((KEEP_VERSIONS + 1))" | cut -d' ' -f2- \
         | while read -r old_dir; do
             old_ver="$(basename "$old_dir")"
-            # Never prune the current version
-            if [ "$old_ver" != "$DESIRED_VERSION" ]; then
-              echo "  pruning: ${old_ver}"
-              rm -rf "$old_dir"
-            fi
+            [ "$old_ver" != "$DESIRED_VERSION" ] && rm -rf "$old_dir" && echo "  pruned: ${old_ver}"
           done
     fi
   fi
 else
-  echo "OpenClaw ${CURRENT_VERSION} already at requested version."
+  echo "OpenClaw ${CURRENT_VERSION} (already active)"
 fi
 
-# ── List installed version snapshots ─────────────────────────────────────
+# ── List installed versions ────────────────────────────────────────────────
+
 if [ -d "$VERSIONS_DIR" ]; then
-  INSTALLED=$(ls -1 "$VERSIONS_DIR" 2>/dev/null)
-  if [ -n "$INSTALLED" ]; then
-    echo "──────────────────────────────────────────────────────────────────"
-    echo "  Installed versions:"
-    echo "$INSTALLED" | while read -r ver; do
-      if [ "$ver" = "$DESIRED_VERSION" ]; then
-        echo "    $ver  ← active"
-      else
-        echo "    $ver"
-      fi
-    done
-    echo "──────────────────────────────────────────────────────────────────"
-  fi
+  echo "---"
+  echo "Installed versions:"
+  ls -1 "$VERSIONS_DIR" 2>/dev/null | while read -r ver; do
+    if [ "$ver" = "$DESIRED_VERSION" ]; then
+      echo "  $ver  ← active"
+    else
+      echo "  $ver"
+    fi
+  done
+  echo "---"
 fi
 
-# ── Activate version snapshot ─────────────────────────────────────────────
+# ── Activate version snapshot ──────────────────────────────────────────────
 
-# Set PATH to use this version's binary
 NPM_PERSIST_DIR="$VERSION_DIR/npm-global"
 mkdir -p "$NPM_PERSIST_DIR"
 export PATH="${NPM_PERSIST_DIR}/bin:${PATH}"
 
-# Symlink legacy shared path so interactive shells (docker exec) resolve correctly.
-# The Dockerfile ENV PATH includes /data/openclaw/npm-global/bin which was the
-# pre-per-version-snapshot location. Point it at the active snapshot.
+# Symlink for docker exec convenience
 LEGACY_NPM_GLOBAL="/data/openclaw/npm-global"
 rm -rf "$LEGACY_NPM_GLOBAL" 2>/dev/null || true
 ln -sfn "$NPM_PERSIST_DIR" "$LEGACY_NPM_GLOBAL"
 
-# Version-specific home directory (~/.openclaw data)
+# Point OpenClaw's home directly at the version snapshot directory.
+# We set HOME so ~/.openclaw resolves to $VERSION_HOME/.openclaw without
+# any symlinks (OpenClaw refuses symlinks in exec approval paths).
 VERSION_HOME="$VERSION_DIR/openclaw-home"
 mkdir -p "$VERSION_HOME"
+export HOME="$VERSION_HOME"
+mkdir -p "$HOME/.openclaw"
+export OPENCLAW_CONFIG_PATH="$HOME/.openclaw/openclaw.json"
 
-# Version-specific config
-export OPENCLAW_CONFIG_PATH="$VERSION_DIR/openclaw.json"
-
-# Migrate from shared layout to per-version layout (one-time)
-# If ~/.openclaw is a real directory (not our symlink), move its contents
-if [ -d "/root/.openclaw" ] && [ ! -L "/root/.openclaw" ]; then
+# One-time migration from old shared layout
+OLD_HOME="/root/.openclaw"
+if [ -d "$OLD_HOME" ] && [ ! -L "$OLD_HOME" ]; then
   echo "Migrating shared .openclaw to version snapshot..."
-  cp -a /root/.openclaw/* "$VERSION_HOME/" 2>/dev/null || true
-  rm -rf /root/.openclaw
-  echo "✓ Migrated .openclaw data"
+  cp -a "$OLD_HOME"/* "$HOME/.openclaw/" 2>/dev/null || true
+  rm -rf "$OLD_HOME"
 fi
-# Migrate shared config if present and version doesn't have one yet
 LEGACY_CONFIG="$STATE_DIR/openclaw.json"
 if [ -f "$LEGACY_CONFIG" ] && [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
   cp -a "$LEGACY_CONFIG" "$OPENCLAW_CONFIG_PATH"
-  echo "✓ Migrated config to version snapshot"
 fi
+VERSION_CONFIG_LINK="$VERSION_DIR/openclaw.json"
+if [ -f "$VERSION_CONFIG_LINK" ] && [ ! -L "$VERSION_CONFIG_LINK" ] && [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
+  cp -a "$VERSION_CONFIG_LINK" "$OPENCLAW_CONFIG_PATH"
+fi
+ln -sfn "$OPENCLAW_CONFIG_PATH" "$VERSION_CONFIG_LINK"
 
-# Point ~/.openclaw at the active version's home
-ln -sfn "$VERSION_HOME" /root/.openclaw
+# Make interactive balena terminals land on the same active OpenClaw home.
+rm -rf "$OLD_HOME" 2>/dev/null || true
+ln -sfn "$HOME/.openclaw" "$OLD_HOME"
 
 echo "Active snapshot: $VERSION_DIR"
 
-# ── 2. Ensure gateway token exists ────────────────────────────────────────
-# Token is shared across versions (changing version shouldn't break auth)
-if [ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
-  TOKEN_FILE="$STATE_DIR/gateway.token"
+# ── 2. Gateway token ───────────────────────────────────────────────────────
+#
+# Chooses the first real token from:
+#   1. OPENCLAW_GATEWAY_TOKEN
+#   2. /data/openclaw/gateway.token
+#   3. existing active gateway.auth.token
+#   4. generated random token
+#
+# Empty values, "changeme", unresolved ${...} values, and env: SecretRef-style
+# placeholders are ignored.
+
+TOKEN_FILE="$STATE_DIR/gateway.token"
+OPENCLAW_GATEWAY_TOKEN="$(clean_token "${OPENCLAW_GATEWAY_TOKEN:-}")"
+if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
+  echo -n "$OPENCLAW_GATEWAY_TOKEN" > "$TOKEN_FILE"
+  echo "Gateway token source: OPENCLAW_GATEWAY_TOKEN"
+else
   if [ -f "$TOKEN_FILE" ]; then
-    export OPENCLAW_GATEWAY_TOKEN="$(cat "$TOKEN_FILE")"
+    OPENCLAW_GATEWAY_TOKEN="$(clean_token "$(cat "$TOKEN_FILE")")"
+  fi
+
+  if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
+    echo "Gateway token source: $TOKEN_FILE"
   else
-    export OPENCLAW_GATEWAY_TOKEN="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+    OPENCLAW_GATEWAY_TOKEN="$(clean_token "$(extract_gateway_config_token "$OPENCLAW_CONFIG_PATH")")"
+    if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
+      echo "Gateway token source: active config"
+    else
+      OPENCLAW_GATEWAY_TOKEN="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+      echo "Gateway token source: generated"
+    fi
     echo -n "$OPENCLAW_GATEWAY_TOKEN" > "$TOKEN_FILE"
   fi
-  echo "Gateway token: $OPENCLAW_GATEWAY_TOKEN"
 fi
+export OPENCLAW_GATEWAY_TOKEN
+echo "Gateway token: ${OPENCLAW_GATEWAY_TOKEN:0:16}…"
 
-# ── 3. Render config from template ─────────────────────────────────────────
+# ── 3. Config deployment ───────────────────────────────────────────────────
 #
-# On first boot: renders from template.
-# On subsequent boots: uses existing config.
-# Set OPENCLAW_RECONFIGURE=true to force re-render from the updated template
-# while preserving the gateway token (so auth doesn't break).
-#
-# Also auto-re-render when the template is newer than the rendered config
-# (detects config changes pushed via balena).
-TEMPLATE="/app/openclaw.json5.template"
-RENDER_NEEDED=false
+# First boot: copy static config.
+# Every boot: refresh only Balena-owned gateway access fields.
+# To reset config, delete the version snapshot directory and reboot.
 
-if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ "${OPENCLAW_RECONFIGURE:-false}" = "true" ]; then
-  echo "⚠ OPENCLAW_RECONFIGURE is set – backing up existing config and re-rendering..."
-  cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
-  rm -f "$OPENCLAW_CONFIG_PATH"
-fi
-
-if [ -f "$OPENCLAW_CONFIG_PATH" ] && [ -f "$TEMPLATE" ]; then
-  if [ "$TEMPLATE" -nt "$OPENCLAW_CONFIG_PATH" ]; then
-    echo "⚠ Template updated – re-rendering config..."
-    cp "$OPENCLAW_CONFIG_PATH" "${OPENCLAW_CONFIG_PATH}.bak"
-    rm -f "$OPENCLAW_CONFIG_PATH"
-  fi
-fi
+STATIC_CONFIG="/app/openclaw.json5"
+CONTROL_UI_ORIGINS_JSON="$(build_control_ui_origins_json)"
 
 if [ ! -f "$OPENCLAW_CONFIG_PATH" ]; then
-  echo "Rendering initial config from template..."
-
-  # Set defaults for all template variables.
-  # envsubst (gettext-base) only handles basic ${VAR}, NOT ${VAR:-default}.
-  # So we set bash defaults here and use plain ${VAR} in the template.
-  : "${OPENAI_API_KEY:=}"
-  : "${GOOGLE_API_KEY:=}"
-  : "${OPENROUTER_API_KEY:=}"
-  : "${FOUNDRY_API_KEY:=}"
-  : "${FOUNDRY_ENDPOINT:=}"
-  : "${DEFAULT_MODEL_REF:=openai/gpt-5.5}"
-
-  # Export to make available for envsubst
-  export OPENAI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY
-  export FOUNDRY_API_KEY FOUNDRY_ENDPOINT DEFAULT_MODEL_REF
-
-  # Also set the vars for envsubst (it reads from the env)
-  envsubst < /app/openclaw.json5.template > "$OPENCLAW_CONFIG_PATH"
-
-  # Sanitize: remove any leftover ${...} patterns that envsubst couldn't resolve
-  # (e.g., in comments). These can confuse the JSON5 parser.
-  sed -i.bak-sanitize 's/\${[A-Za-z_][A-Za-z0-9_]*}//g' "$OPENCLAW_CONFIG_PATH"
-  rm -f "${OPENCLAW_CONFIG_PATH}.bak-sanitize"
-
-  echo "✓ Config rendered from template"
-
-  # Check for any remaining ${} patterns (should be none after sanitization)
-  if grep -q '\${' "$OPENCLAW_CONFIG_PATH" 2>/dev/null; then
-    echo "⚠ WARNING: Unresolved variable patterns remain in config!"
-  fi
+  echo "First boot: deploying config..."
+  cp "$STATIC_CONFIG" "$OPENCLAW_CONFIG_PATH"
+  echo "✓ Config deployed"
 else
-  echo "Using existing config at $OPENCLAW_CONFIG_PATH"
+  echo "Config exists at $OPENCLAW_CONFIG_PATH (preserving user edits)"
 fi
 
-# Patch existing configs: add controlUi.allowedOrigins if missing
-# (required by newer OpenClaw versions when behind a reverse proxy)
-if [ -f "$OPENCLAW_CONFIG_PATH" ] && ! grep -q 'allowedOrigins' "$OPENCLAW_CONFIG_PATH"; then
-  ORIGIN_URL="http://127.0.0.1:${OPENCLAW_GATEWAY_PORT:-8080}"
-  echo "Patching config: adding controlUi.allowedOrigins [\"${ORIGIN_URL}\"]..."
-  sed -i "s|\(auth: {[^}]*}\)|\1,\n    controlUi: { allowedOrigins: [\"${ORIGIN_URL}\"] }|" "$OPENCLAW_CONFIG_PATH"
-  echo "✓ Patched config with controlUi.allowedOrigins"
-fi
+refresh_gateway_access_config "$OPENCLAW_CONFIG_PATH" "$CONTROL_UI_ORIGINS_JSON" "$OPENCLAW_GATEWAY_TOKEN"
+echo "Control UI allowed origins: $CONTROL_UI_ORIGINS_JSON"
 
-# Patch: add balena public URL to allowedOrigins so the gateway accepts
-# requests arriving via the balena public URL (BALENA_DEVICE_UUID is set
-# automatically by the balena supervisor in every container).
-BALENA_UUID="$(clean_var "${BALENA_DEVICE_UUID:-}")"
-if [ -n "$BALENA_UUID" ] && [ -f "$OPENCLAW_CONFIG_PATH" ]; then
-  if grep -q 'allowedOrigins' "$OPENCLAW_CONFIG_PATH" && ! grep -q "$BALENA_UUID" "$OPENCLAW_CONFIG_PATH"; then
-    BALENA_ORIGIN="https://${BALENA_UUID}.balena-devices.com"
-    echo "Patching config: adding balena public URL to allowedOrigins..."
-    sed -i "s|allowedOrigins: \[|allowedOrigins: [\"${BALENA_ORIGIN}\", |" "$OPENCLAW_CONFIG_PATH"
-    echo "✓ Added ${BALENA_ORIGIN} to allowedOrigins"
-  fi
-fi
+# ── 4. Launch ──────────────────────────────────────────────────────────────
 
-# ── 4. Pass all environment variables to OpenClaw ────────────────────────
-#
-# Export all environment variables from Balena Cloud to OpenClaw's .env file.
-# This allows you to configure any provider or integration via Balena Device
-# Variables, and control which ones to use in openclaw.json config.
-#
-OPENCLAW_ENV_FILE="/root/.openclaw/.env"
-mkdir -p "$(dirname "$OPENCLAW_ENV_FILE")"
-
-echo "Exporting all environment variables to $OPENCLAW_ENV_FILE..."
-> "$OPENCLAW_ENV_FILE"
-
-# Export all environment variables, excluding common system ones
-env | while IFS='=' read -r name value; do
-  # Skip if name is empty or starts with a digit (invalid var name)
-  [ -z "$name" ] && continue
-  [[ "$name" =~ ^[0-9] ]] && continue
-
-  # Skip common system/internal variables that shouldn't be exported
-  case "$name" in
-    HOME|USER|PATH|PWD|OLDPWD|SHELL|TERM|HOSTNAME|SHLVL|_|\
-    LANG|LC_*|TZ|DEBIAN_FRONTEND|NODE_VERSION|YARN_VERSION|\
-    INIT_CWD|npm_config_*|npm_lifecycle_*|npm_package_*|npm_execpath|\
-    BALENA_*|RESIN_*)
-      continue
-      ;;
-  esac
-
-  # Get the full value (env output might be truncated)
-  full_value="${!name}"
-
-  # Only export if it has actual content
-  if has_value "$full_value"; then
-    # Write to .env file with proper shell quoting
-    printf "%s='%s'\n" "$name" "${full_value//\'/\'\\\'\'}" >> "$OPENCLAW_ENV_FILE"
-    echo "  - ${name} configured"
-  fi
-done
-
-# ── 5. Install skills from OPENCLAW_SKILLS ───────────────────────────────
-#
-# Comma-separated list of ClawHub skill slugs.
-# Example: OPENCLAW_SKILLS="home-assistant,web-search,coding-patterns"
-#
-# Skills are installed to ~/.openclaw/skills/ (version-specific snapshot).
-# Already-installed skills are re-checked (fast no-op on second boot).
-#
-SKILLS_LIST="$(clean_var "${OPENCLAW_SKILLS:-}")"
-if [ -n "$SKILLS_LIST" ]; then
-  echo "──────────────────────────────────────────────────────────────────"
-  echo "  Installing skills: ${SKILLS_LIST}"
-  echo "──────────────────────────────────────────────────────────────────"
-  IFS=',' read -ra SKILLS <<< "$SKILLS_LIST"
-  for skill in "${SKILLS[@]}"; do
-    skill="$(echo "$skill" | xargs)"  # trim whitespace
-    [ -z "$skill" ] && continue
-    echo "  → Installing skill: ${skill} ..."
-    if openclaw skills install "$skill" 2>&1; then
-      echo "    ✓ ${skill} installed"
-    else
-      echo "    ⚠ Failed to install skill: ${skill} (continuing)"
-    fi
-  done
-fi
-
-# ── 6. Install plugins from OPENCLAW_PLUGINS ─────────────────────────────
-#
-# Comma-separated list of plugin npm packages or local paths.
-# Example: OPENCLAW_PLUGINS="@openclaw/voice-call,@openclaw/homebridge"
-#
-# Plugins are installed to ~/.openclaw/extensions/ (version-specific snapshot).
-#
-PLUGINS_LIST="$(clean_var "${OPENCLAW_PLUGINS:-}")"
-if [ -n "$PLUGINS_LIST" ]; then
-  echo "──────────────────────────────────────────────────────────────────"
-  echo "  Installing plugins: ${PLUGINS_LIST}"
-  echo "──────────────────────────────────────────────────────────────────"
-  IFS=',' read -ra PLUGINS <<< "$PLUGINS_LIST"
-  for plugin in "${PLUGINS[@]}"; do
-    plugin="$(echo "$plugin" | xargs)"  # trim whitespace
-    [ -z "$plugin" ] && continue
-    echo "  → Installing plugin: ${plugin} ..."
-    if openclaw plugins install "$plugin" 2>&1; then
-      echo "    ✓ ${plugin} installed"
-    else
-      echo "    ⚠ Failed to install plugin: ${plugin} (continuing)"
-    fi
-  done
-fi
-
-# ── 6.5. Auto-fix configuration issues ──────────────────────────────────
-#
-# Always run openclaw doctor to validate and auto-fix config before starting.
-# This catches issues like schema mismatches, invalid defaults, etc.
-# Set OPENCLAW_SKIP_DOCTOR=true to skip this step.
-#
-if [ "${OPENCLAW_SKIP_DOCTOR:-false}" != "true" ]; then
-  echo "──────────────────────────────────────────────────────────────────"
-  echo "  Validating config with openclaw doctor..."
-  echo "──────────────────────────────────────────────────────────────────"
-  if openclaw doctor --fix 2>&1; then
-    echo "  ✓ Config validated"
-  else
-    echo "  ⚠ Doctor found issues (continuing)"
-  fi
-fi
-
-# ── 7. Launch the gateway ─────────────────────────────────────────────────
 if [ "${OPENCLAW_GATEWAY_STOP:-false}" = "true" ]; then
-  echo ""
-  echo "⚠ OPENCLAW_GATEWAY_STOP is set – gateway startup skipped"
-  echo "Container will remain running for manual intervention (e.g., openclaw doctor)."
-  echo ""
-  # Keep container alive for manual commands
+  echo "OPENCLAW_GATEWAY_STOP=true – skipping gateway startup"
   exec tail -f /dev/null
-else
-  echo ""
-  echo "Starting OpenClaw gateway..."
-  exec openclaw gateway
 fi
+
+echo "Starting OpenClaw gateway..."
+exec openclaw gateway --token "$OPENCLAW_GATEWAY_TOKEN"
