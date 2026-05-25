@@ -31,6 +31,9 @@ services:
       # Single public browser origin. Useful for pasting the Balena tunnel URL.
       - OPENCLAW_PUBLIC_ORIGIN=
 
+      # IPv6 is disabled by default for simpler Raspberry Pi/LAN deployments.
+      - OPENCLAW_ENABLE_IPV6=false
+
       # Set to a specific version to upgrade/downgrade (e.g. "2026.5.22")
       - OPENCLAW_VERSION=
 

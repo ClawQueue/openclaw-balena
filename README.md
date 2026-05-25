@@ -26,6 +26,7 @@ The startup script deliberately owns only Balena-specific gateway plumbing: auth
 - **Back up the whole appliance or just memories:** `rclone` is built in, so you can sync `/data/openclaw` or a narrower directory such as the active `.openclaw` memory data to Dropbox, Google Drive, Box, S3, WebDAV, and many other remotes.
 - **Balena operations are still available:** remote logs, terminal access, device variables, public URL, OTA release updates, fleet management, and container restarts all work through the Balena dashboard/CLI.
 - **Local and tunnel UI support:** HAProxy handles LAN HTTPS and the Balena public URL, while startup regenerates OpenClaw Control UI origins for the current device, tunnel, LAN IPs, and any custom origin you provide.
+- **IPv4-first defaults:** IPv6 is off by default to avoid Raspberry Pi/LAN edge cases with browser origins, self-signed certificates, and mixed tunnel/LAN access. Users who need IPv6 can opt in explicitly.
 
 ## Quick Start
 
@@ -128,6 +129,25 @@ OPENCLAW_CONTROL_UI_ORIGINS=https://openclaw.example.com,https://my-pi.ts.net
 
 Avoid `allowedOrigins: ["*"]`; OpenClaw treats that as a real browser-origin allow-all policy.
 
+IPv6 is disabled by default. HAProxy binds to `0.0.0.0` only, and startup does not add IPv6 literal addresses to OpenClaw's allowed origins. If you need IPv6:
+
+1. Set `OPENCLAW_ENABLE_IPV6=true`.
+2. Add your IPv6 browser origin explicitly, using brackets:
+
+```text
+OPENCLAW_CONTROL_UI_ORIGINS=https://[2001:db8::1234]
+```
+
+3. Update `proxy/haproxy.cfg` to bind IPv6 as well, for example `bind :::80 v4v6` and `bind :::443 v4v6 ssl crt /etc/haproxy/certs/self-signed.pem`.
+
+If you are not using IPv6 and see Node/OpenClaw outbound connection delays or failures caused by IPv6 DNS results, you can set this Balena device variable:
+
+```text
+NODE_OPTIONS=--dns-result-order=ipv4first
+```
+
+Balena passes it into the container automatically. It makes Node prefer IPv4 for DNS results used by OpenClaw, but it does not control HAProxy bind addresses or browser allowed origins.
+
 ## Upgrades And Rollback
 
 Each OpenClaw version is a self-contained snapshot under `/data/openclaw/versions/<version>/`:
@@ -153,6 +173,8 @@ Old snapshots are pruned by modification time. Set `OPENCLAW_KEEP_VERSIONS` to c
 | `OPENCLAW_GATEWAY_TOKEN` | Control UI token. Empty, unresolved placeholders, and `changeme` are ignored; startup uses the persisted token file or generates one. |
 | `OPENCLAW_PUBLIC_ORIGIN` | Single browser origin for the public UI URL, usually the Balena tunnel URL. |
 | `OPENCLAW_CONTROL_UI_ORIGINS` | Extra comma-separated HTTPS/HTTP origins for custom DNS, Tailscale, or another proxy. |
+| `OPENCLAW_ENABLE_IPV6` | Set `true` to include IPv6 literal addresses in generated origins. HAProxy still needs IPv6 bind lines if you want direct IPv6 access. Default: `false`. |
+| `NODE_OPTIONS` | Optional Node runtime flags. `--dns-result-order=ipv4first` is useful when you want OpenClaw outbound DNS to prefer IPv4. |
 | `OPENCLAW_VERSION` | OpenClaw version to activate. Empty uses the image-baked version. |
 | `OPENCLAW_KEEP_VERSIONS` | Number of version snapshots to keep. Default: `3`. |
 | `OPENCLAW_GATEWAY_STOP` | Set `true` to keep the container alive without starting the gateway. Useful for repair. |

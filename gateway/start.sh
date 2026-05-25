@@ -97,6 +97,13 @@ add_origin() {
   esac
 }
 
+is_true() {
+  case "$(clean_var "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 add_https_host_origins() {
   local host="$1"
   host="${host%.}"
@@ -144,7 +151,16 @@ build_control_ui_origins_json() {
 
   local ip
   for ip in $(hostname -I 2>/dev/null || true); do
-    add_origin "https://${ip}"
+    case "$ip" in
+      *:*)
+        if is_true "${OPENCLAW_ENABLE_IPV6:-false}"; then
+          add_origin "https://[${ip}]"
+        fi
+        ;;
+      *)
+        add_origin "https://${ip}"
+        ;;
+    esac
   done
 
   local custom_origins custom_origin
