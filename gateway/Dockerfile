@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   python3-pip \
   jq \
   rclone \
+  sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Upgrade npm to latest to ensure native builds use current npm/node-gyp tooling

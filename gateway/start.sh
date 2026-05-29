@@ -300,7 +300,7 @@ if [ "$CURRENT_VERSION" != "$DESIRED_VERSION" ]; then
 
     if [ "$DESIRED_VERSION" = "$IMAGE_VERSION" ] && seed_baked_openclaw "$INSTALL_PREFIX"; then
       echo "Seeded OpenClaw ${DESIRED_VERSION} from image"
-    elif npm install -g --prefix "$INSTALL_PREFIX" --loglevel verbose "openclaw@${DESIRED_VERSION}"; then
+    elif npm install -g --prefix "$INSTALL_PREFIX" --cache "/data/openclaw/.npm-cache" --prefer-offline --no-audit --no-fund --no-update-notifier --loglevel info "openclaw@${DESIRED_VERSION}"; then
       echo "✓ OpenClaw ${DESIRED_VERSION} installed"
     else
       echo "⚠ Install failed"
@@ -454,6 +454,21 @@ fi
 
 refresh_gateway_access_config "$OPENCLAW_CONFIG_PATH" "$CONTROL_UI_ORIGINS_JSON" "$OPENCLAW_GATEWAY_TOKEN"
 echo "Control UI allowed origins: $CONTROL_UI_ORIGINS_JSON"
+
+# ── SQLite Optimization for MicroSD Endurance ──────────────────────────────
+
+if command -v sqlite3 >/dev/null 2>&1; then
+  echo "Optimizing SQLite databases for microSD lifetime..."
+  # Scan active OpenClaw home and persistent /data directory for databases
+  find "$HOME/.openclaw" "/data" -name "*.db" -o -name "*.sqlite" 2>/dev/null | while read -r db_file; do
+    # Skip any journaling auxiliary files
+    [[ "$db_file" =~ -(wal|shm)$ ]] && continue
+    echo "  Applying WAL mode & synchronous=NORMAL to: $db_file"
+    sqlite3 "$db_file" "PRAGMA journal_mode=WAL;" "PRAGMA synchronous=NORMAL;"
+  done
+else
+  echo "sqlite3 CLI not found – skipping database optimization"
+fi
 
 # ── 4. Launch ──────────────────────────────────────────────────────────────
 

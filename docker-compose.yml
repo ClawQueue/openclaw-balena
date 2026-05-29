@@ -20,6 +20,9 @@ services:
       - openclaw_data:/data
       - openclaw_home:/root
 
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256M
+
     environment:
       # Gateway token — auto-generated if empty (see start.sh)
       - OPENCLAW_GATEWAY_TOKEN=
@@ -42,6 +45,12 @@ services:
 
       # Set true for repair/debug sessions without starting the gateway
       - OPENCLAW_GATEWAY_STOP=false
+
+      # PERFORMANCE & WEAR OPTIMIZATIONS
+      # Redirect compilation bytecode cache to RAM-backed tmpfs mount
+      - NODE_COMPILE_CACHE=/tmp/openclaw-compile-cache
+      # Prevent swapping on Raspberry Pi and specify DNS resolution order
+      - NODE_OPTIONS=--dns-result-order=ipv4first --max-old-space-size=1024
 
 volumes:
   openclaw_data:
