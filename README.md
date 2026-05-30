@@ -204,7 +204,7 @@ OpenClaw features a built-in automated daily backup daemon that safely snapshots
    ```bash
    rclone authorize "box" "<your_client_id>" "<your_client_secret>"
    ```
-5. SSH into the `openclaw` container and paste the generated JSON token block into the `[box]` section of `/root/.openclaw/workspace/rclone.conf`:
+5. SSH into the `openclaw` container and paste the generated JSON token block into the `[box]` section of `/data/openclaw/rclone.conf`:
    ```ini
    [box]
    type = box
