@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   jq \
   rclone \
   sqlite3 \
+  zip \
   && rm -rf /var/lib/apt/lists/*
 
 # Upgrade npm to latest to ensure native builds use current npm/node-gyp tooling
@@ -47,9 +48,10 @@ WORKDIR /app
 RUN openclaw --version 2>/dev/null | head -1 > /app/.openclaw-image-version || echo "unknown" > /app/.openclaw-image-version
 
 COPY start.sh /app/start.sh
+COPY backup.sh /app/backup.sh
 COPY config/openclaw.json5 /app/openclaw.json5
 
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/start.sh /app/backup.sh
 
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini","--"]

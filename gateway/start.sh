@@ -472,6 +472,9 @@ fi
 
 # ── 4. Launch ──────────────────────────────────────────────────────────────
 
+# Start the automated daily backup background daemon
+/app/backup.sh &
+
 if [ "${OPENCLAW_GATEWAY_STOP:-false}" = "true" ]; then
   echo "OPENCLAW_GATEWAY_STOP=true – skipping gateway startup"
   exec tail -f /dev/null
