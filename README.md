@@ -189,7 +189,33 @@ Old snapshots are pruned by modification time. Set `OPENCLAW_KEEP_VERSIONS` to c
 
 HAProxy forwards `Host`, `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Real-IP` so OpenClaw sees the browser-facing origin.
 
-## Backups
+## Automated Daily Backups
+
+OpenClaw features a built-in automated daily backup daemon that safely snapshots your databases, configurations, memories, and plugins to a cloud provider. To preserve your Raspberry Pi's microSD card lifespan, the entire snapshot and compression process occurs safely in RAM (`tmpfs`), writing zero bytes to the physical disk before uploading.
+
+### Configuring Box Backups
+
+1. Create a **Custom App** in the [Box Developer Console](https://app.box.com/developers/console) and select **User Authentication (OAuth 2.0)**.
+2. In the App Configuration, add the Redirect URI `http://127.0.0.1:53682/` and ensure the **"Write all files and folders"** scope is checked.
+3. In the Balena dashboard, add the following device variables:
+   - `BOX_CLIENT_ID`: Your Box App Client ID
+   - `BOX_CLIENT_SECRET`: Your Box App Client Secret
+4. Generate your offline `rclone` token by running this on your local Mac/PC:
+   ```bash
+   rclone authorize "box" "<your_client_id>" "<your_client_secret>"
+   ```
+5. SSH into the `openclaw` container and paste the generated JSON token block into the `[box]` section of `/root/.openclaw/workspace/rclone.conf`:
+   ```ini
+   [box]
+   type = box
+   client_id = <your_client_id>
+   client_secret = <your_client_secret>
+   token = {"access_token":"...","token_type":"bearer","refresh_token":"...","expiry":"..."}
+   ```
+
+The daemon runs in the background and will execute every 24 hours. You can customize the remote name by setting `OPENCLAW_BACKUP_REMOTE` (default: `box`) and the destination folder with `OPENCLAW_BACKUP_DIR` (default: `openclaw-backups`).
+
+## Manual Backups
 
 `rclone` is installed in the `openclaw` container. It supports Dropbox, Google Drive, Box, S3, WebDAV, SFTP, and many other remotes.
 
@@ -198,20 +224,12 @@ rclone config
 rclone sync /data/openclaw remote:backup
 ```
 
-Back up the whole appliance state:
-
-```bash
-rclone sync /data/openclaw remote:openclaw-full
-```
-
 Or back up only the active OpenClaw home, which includes config, memories, skills, plugins, and agent data:
 
 ```bash
 ACTIVE_VERSION="$(cat /data/openclaw/.current-version)"
 rclone sync "/data/openclaw/versions/${ACTIVE_VERSION}/openclaw-home/.openclaw" remote:openclaw-home
 ```
-
-For a memories-only backup, inspect the active `.openclaw` directory after onboarding and sync the specific memory store path OpenClaw created for your setup.
 
 ## Local Development
 

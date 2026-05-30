@@ -109,7 +109,13 @@ while true; do
   fi
 
   # 5. Native rclone execution
-  # Since we are using standard OAuth 2.0, rclone natively handles token refreshes using /root/.openclaw/workspace/rclone.conf
+  # Override Box client credentials with environment variables if set in Balena
+  if [ -n "${BOX_CLIENT_ID:-}" ]; then
+    export RCLONE_CONFIG_BOX_CLIENT_ID="$BOX_CLIENT_ID"
+  fi
+  if [ -n "${BOX_CLIENT_SECRET:-}" ]; then
+    export RCLONE_CONFIG_BOX_CLIENT_SECRET="$BOX_CLIENT_SECRET"
+  fi
   echo "Preparing upload..."
 
   # 6. Upload using rclone
