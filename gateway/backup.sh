@@ -108,36 +108,9 @@ while true; do
     continue
   fi
 
-  # 5. Fetch a fresh CCG access token from Box and dynamically configure rclone
-  echo "Fetching Client Credentials token from Box..."
-  if [ -n "${BOX_CLIENT_ID:-}" ] && [ -n "${BOX_CLIENT_SECRET:-}" ]; then
-    TOKEN_JSON=$(curl -s -X POST https://api.box.com/oauth2/token \
-      -d grant_type=client_credentials \
-      -d client_id="$BOX_CLIENT_ID" \
-      -d client_secret="$BOX_CLIENT_SECRET")
-    
-    TOKEN=$(echo "$TOKEN_JSON" | jq -r .access_token 2>/dev/null || true)
-    
-    if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
-      echo "✓ Successfully fetched Box token."
-      export RCLONE_CONFIG_BOX_TYPE="box"
-      export RCLONE_BOX_ACCESS_TOKEN="$TOKEN"
-      REMOTE_NAME="box"
-    else
-      echo "Error: Failed to fetch Box token. Response was: $TOKEN_JSON"
-      echo "Please verify that your Custom App 'Manobot#1' is fully authorized in the Box Admin Console (Custom Apps Manager)."
-      rm -f "$BACKUP_ZIP_PATH"
-      rm -rf "$STAGING_DIR"
-      sleep 3600
-      continue
-    fi
-  else
-    echo "Error: BOX_CLIENT_ID and BOX_CLIENT_SECRET must be set as environment variables."
-    rm -f "$BACKUP_ZIP_PATH"
-    rm -rf "$STAGING_DIR"
-    sleep 3600
-    continue
-  fi
+  # 5. Native rclone execution
+  # Since we are using standard OAuth 2.0, rclone natively handles token refreshes using /root/.openclaw/workspace/rclone.conf
+  echo "Preparing upload..."
 
   # 6. Upload using rclone
   echo "Uploading backup to ${REMOTE_NAME}:${BACKUP_DIR}..."
