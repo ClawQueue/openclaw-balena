@@ -303,19 +303,24 @@ if [ "$CURRENT_VERSION" != "$DESIRED_VERSION" ]; then
     elif npm install -g --prefix "$INSTALL_PREFIX" --cache "/data/openclaw/.npm-cache" --prefer-offline --no-audit --no-fund --no-update-notifier --loglevel info "openclaw@${DESIRED_VERSION}"; then
       echo "✓ OpenClaw ${DESIRED_VERSION} installed"
     else
-      echo "⚠ Install failed"
-      rm -rf "$VERSION_DIR"
-      if [ -d "$PREVIOUS_VERSION_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ]; then
-        echo "Falling back to previous version: ${CURRENT_VERSION}"
-        VERSION_DIR="$PREVIOUS_VERSION_DIR"
-        DESIRED_VERSION="$CURRENT_VERSION"
+      echo "⚠ Offline-first install failed. Retrying online to refresh package metadata cache..."
+      if npm install -g --prefix "$INSTALL_PREFIX" --cache "/data/openclaw/.npm-cache" --no-audit --no-fund --no-update-notifier --loglevel info "openclaw@${DESIRED_VERSION}"; then
+        echo "✓ OpenClaw ${DESIRED_VERSION} installed successfully on online retry"
       else
-        echo "Falling back to image-baked version: ${IMAGE_VERSION}"
-        DESIRED_VERSION="$IMAGE_VERSION"
-        VERSION_DIR="$VERSIONS_DIR/$DESIRED_VERSION"
-        INSTALL_PREFIX="$VERSION_DIR/npm-global"
-        mkdir -p "$INSTALL_PREFIX"
-        seed_baked_openclaw "$INSTALL_PREFIX"
+        echo "⚠ Install failed"
+        rm -rf "$VERSION_DIR"
+        if [ -d "$PREVIOUS_VERSION_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ]; then
+          echo "Falling back to previous version: ${CURRENT_VERSION}"
+          VERSION_DIR="$PREVIOUS_VERSION_DIR"
+          DESIRED_VERSION="$CURRENT_VERSION"
+        else
+          echo "Falling back to image-baked version: ${IMAGE_VERSION}"
+          DESIRED_VERSION="$IMAGE_VERSION"
+          VERSION_DIR="$VERSIONS_DIR/$DESIRED_VERSION"
+          INSTALL_PREFIX="$VERSION_DIR/npm-global"
+          mkdir -p "$INSTALL_PREFIX"
+          seed_baked_openclaw "$INSTALL_PREFIX"
+        fi
       fi
     fi
   fi
