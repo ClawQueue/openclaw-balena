@@ -21,6 +21,7 @@ data:
     - OPENCLAW_VERSION: ""
     - OPENCLAW_KEEP_VERSIONS: "3"
     - OPENCLAW_GATEWAY_STOP: "false"
+    - OPENCLAW_INSTALL_GCLOUD: "false"
     - HAPROXY_CERT_CN: ""
   defaultDeviceType: raspberrypi4-64
   supportedDeviceTypes:

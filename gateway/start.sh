@@ -237,6 +237,46 @@ seed_baked_openclaw() {
 STATE_DIR="/data/openclaw"
 mkdir -p "$STATE_DIR"
 
+# ── Google Cloud CLI Dynamic Installation ───────────────────────────────────
+
+if is_true "${OPENCLAW_INSTALL_GCLOUD:-false}"; then
+  GCLOUD_DIR="$STATE_DIR/google-cloud-sdk"
+  if [ ! -d "$GCLOUD_DIR" ]; then
+    echo "Installing Google Cloud CLI to persistent volume..."
+    
+    # Detect CPU architecture
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+      x86_64) GCLOUD_ARCH="x86_64" ;;
+      aarch64|arm64) GCLOUD_ARCH="arm" ;;
+      *) echo "Unsupported architecture for dynamic gcloud install: $ARCH"; exit 1 ;;
+    esac
+
+    GCLOUD_TAR="google-cloud-cli-linux-${GCLOUD_ARCH}.tar.gz"
+    GCLOUD_URL="https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/${GCLOUD_TAR}"
+
+    echo "Downloading Google Cloud CLI for ${GCLOUD_ARCH}..."
+    if curl -fsSL -o "/tmp/${GCLOUD_TAR}" "$GCLOUD_URL"; then
+      echo "Extracting to ${STATE_DIR}..."
+      tar -xf "/tmp/${GCLOUD_TAR}" -C "$STATE_DIR"
+      rm "/tmp/${GCLOUD_TAR}"
+      
+      echo "Running gcloud installation script..."
+      # Install without interactive prompts, disable usage reporting
+      "$GCLOUD_DIR/install.sh" --quiet --usage-reporting=false --path-update=false
+      echo "✓ Google Cloud CLI installed successfully!"
+    else
+      echo "Error downloading Google Cloud CLI"
+    fi
+  fi
+
+  if [ -d "$GCLOUD_DIR/bin" ]; then
+    export PATH="$GCLOUD_DIR/bin:$PATH"
+    echo "Google Cloud CLI activated (Path: $GCLOUD_DIR/bin)"
+  fi
+fi
+
+
 VERSIONS_DIR="$STATE_DIR/versions"
 CURRENT_VERSION_FILE="$STATE_DIR/.current-version"
 KEEP_VERSIONS="${OPENCLAW_KEEP_VERSIONS:-3}"

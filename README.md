@@ -178,6 +178,7 @@ Old snapshots are pruned by modification time. Set `OPENCLAW_KEEP_VERSIONS` to c
 | `OPENCLAW_VERSION` | OpenClaw version to activate. Empty uses the image-baked version. |
 | `OPENCLAW_KEEP_VERSIONS` | Number of version snapshots to keep. Default: `3`. |
 | `OPENCLAW_GATEWAY_STOP` | Set `true` to keep the container alive without starting the gateway. Useful for repair. |
+| `OPENCLAW_INSTALL_GCLOUD` | Set `true` to dynamically install Google Cloud CLI (`gcloud`) in the persistent `/data` volume. Installs once and persists across container updates. Default: `false`. |
 | `HAPROXY_CERT_CN` | Common name for the generated self-signed certificate. Default: `openclaw.local`. |
 
 ## Architecture
@@ -188,6 +189,25 @@ Old snapshots are pruned by modification time. Set `OPENCLAW_KEEP_VERSIONS` to c
 | `openclaw` | OpenClaw gateway on port 8080 with persistent version snapshots under `/data/openclaw`. |
 
 HAProxy forwards `Host`, `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Real-IP` so OpenClaw sees the browser-facing origin.
+
+## Google Cloud CLI (gcloud)
+
+If your OpenClaw skills, plugins, or workflows require `gcloud` (Google Cloud CLI) to be available inside the gateway environment:
+
+1. Add the Balena device variable `OPENCLAW_INSTALL_GCLOUD` with the value `true` in your Balena Cloud dashboard.
+2. On boot, the container will automatically download the correct package for your host's architecture (AMD64 or ARM64) and install it to the persistent `/data` volume. It only installs once and has zero boot-time overhead on subsequent restarts.
+
+### Updating gcloud
+
+To update the Google Cloud SDK, open the container terminal in Balena Cloud and run:
+```bash
+gcloud components update
+```
+
+Or to force a clean re-installation, delete the directory from the terminal and restart the container:
+```bash
+rm -rf /data/openclaw/google-cloud-sdk
+```
 
 ## Automated Daily Backups
 

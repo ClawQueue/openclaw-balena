@@ -46,6 +46,9 @@ services:
       # Set true for repair/debug sessions without starting the gateway
       - OPENCLAW_GATEWAY_STOP=false
 
+      # Enable dynamic Google Cloud CLI installation (optional)
+      - OPENCLAW_INSTALL_GCLOUD=false
+
       # PERFORMANCE & WEAR OPTIMIZATIONS
       # Redirect compilation bytecode cache to RAM-backed tmpfs mount
       - NODE_COMPILE_CACHE=/tmp/openclaw-compile-cache
