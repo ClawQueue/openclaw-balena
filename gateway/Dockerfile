@@ -33,7 +33,7 @@ RUN if [ "$OPENCLAW_VERSION" = "latest" ]; then \
 # /data/openclaw/npm-global/bin is a symlink to the active per-version snapshot,
 # created by start.sh at boot. This ensures docker exec shells resolve the
 # correct openclaw binary even after version upgrades.
-ENV PATH=/data/openclaw/npm-global/bin:$PATH
+ENV PATH=/data/openclaw/google-cloud-sdk/bin:/data/openclaw/npm-global/bin:$PATH
 
 # Performance: Node compile cache speeds up repeated CLI invocations on ARM.
 # OPENCLAW_NO_RESPAWN keeps gateway restarts in-process (avoids extra process

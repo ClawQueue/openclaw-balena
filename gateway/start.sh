@@ -274,6 +274,13 @@ if is_true "${OPENCLAW_INSTALL_GCLOUD:-false}"; then
   if [ -d "$GCLOUD_DIR/bin" ]; then
     export PATH="$GCLOUD_DIR/bin:$PATH"
     echo "Google Cloud CLI activated (Path: $GCLOUD_DIR/bin)"
+
+    # Ensure gcloud is available in all interactive/SSH shells
+    for profile in /etc/bash.bashrc /etc/profile; do
+      if [ -f "$profile" ] && ! grep -q "$GCLOUD_DIR/bin" "$profile"; then
+        echo "export PATH=\"$GCLOUD_DIR/bin:\$PATH\"" >> "$profile"
+      fi
+    done
   fi
 fi
 
