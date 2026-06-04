@@ -197,6 +197,44 @@ If your OpenClaw skills, plugins, or workflows require `gcloud` (Google Cloud CL
 1. Add the Balena device variable `OPENCLAW_INSTALL_GCLOUD` with the value `true` in your Balena Cloud dashboard.
 2. On boot, the container will automatically download the correct package for your host's architecture (AMD64 or ARM64) and install it to the persistent `/data` volume. It only installs once and has zero boot-time overhead on subsequent restarts.
 
+### GCP Authentication and Configuration
+
+To use `gcloud` or GCP Client Libraries in your OpenClaw skills and plugins, you need to configure authentication and target details. 
+
+#### 1. Configure GCP Project & Location
+You can set your default Google Cloud target details by defining them as **Balena Device Variables** in your Balena Cloud dashboard. They will automatically be injected into your container's environment:
+
+* **Name/Key:** `GOOGLE_CLOUD_PROJECT`  
+  **Value:** Your GCP Project ID (e.g., `my-gcp-project`)
+* **Name/Key:** `GOOGLE_CLOUD_LOCATION`  
+  **Value:** Your target GCP Region/Location (e.g., `europe-west4` or `us-central1`)
+
+#### 2. Authentication Options
+
+Choose one of the following methods to authenticate inside the container:
+
+##### Method A: Google Service Account (Recommended for production)
+This is the cleanest and most secure method for headless appliances:
+1. In your Google Cloud Console, create a Service Account with the required IAM roles and download its private key in **JSON format**.
+2. Upload or save that file as `/data/openclaw/gcp-key.json` inside your container (you can create/paste it via the Balena SSH terminal, or copy it via `scp`/`rclone`).
+3. Add the following **Balena Device Variable** in your dashboard:
+   * **Name/Key:** `GOOGLE_APPLICATION_CREDENTIALS`
+   * **Value:** `/data/openclaw/gcp-key.json`
+
+Because `/data` is a persistent volume, your credentials are safe, private, and will survive all future container upgrades.
+
+##### Method B: Interactive User Login (Web-flow)
+For development, you can log in interactively using your Google account:
+1. SSH/Open Terminal into your `openclaw` container via Balena Cloud.
+2. Run the authentication login:
+   ```bash
+   gcloud auth login --no-launch-browser
+   ```
+3. Copy the long URL displayed in the terminal, paste it in your desktop browser to sign in, and click **Allow**.
+4. Copy the authorization code shown in the browser, paste it back into your Balena terminal, and press enter.
+
+Because OpenClaw versions persist and clone your user home directory `~/.config`, your login tokens are stored in the active version snapshot and are safely preserved across updates.
+
 ### Updating gcloud
 
 To update the Google Cloud SDK, open the container terminal in Balena Cloud and run:
