@@ -241,8 +241,9 @@ mkdir -p "$STATE_DIR"
 
 if is_true "${OPENCLAW_INSTALL_GCLOUD:-false}"; then
   GCLOUD_DIR="$STATE_DIR/google-cloud-sdk"
-  if [ ! -d "$GCLOUD_DIR" ]; then
+  if [ ! -f "$GCLOUD_DIR/bin/gcloud" ]; then
     echo "Installing Google Cloud CLI to persistent volume..."
+    rm -rf "$GCLOUD_DIR" # Clean up any partial/failed installation
     
     # Detect CPU architecture
     ARCH="$(uname -m)"
@@ -263,7 +264,7 @@ if is_true "${OPENCLAW_INSTALL_GCLOUD:-false}"; then
       
       echo "Running gcloud installation script..."
       # Install without interactive prompts, disable usage reporting
-      "$GCLOUD_DIR/install.sh" --quiet --usage-reporting=false --path-update=false
+      CLOUDSDK_CORE_DISABLE_PROMPTS=1 "$GCLOUD_DIR/install.sh" --disable-prompts --usage-reporting=false --path-update=false
       echo "✓ Google Cloud CLI installed successfully!"
     else
       echo "Error downloading Google Cloud CLI"
