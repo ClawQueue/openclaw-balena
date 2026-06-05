@@ -237,6 +237,26 @@ seed_baked_openclaw() {
 STATE_DIR="/data/openclaw"
 mkdir -p "$STATE_DIR"
 
+# Set up persistent gcloud configuration and application default credentials paths unconditionally
+export CLOUDSDK_CONFIG="$STATE_DIR/.config/gcloud"
+export GOOGLE_APPLICATION_CREDENTIALS="$CLOUDSDK_CONFIG/application_default_credentials.json"
+mkdir -p "$CLOUDSDK_CONFIG"
+
+# Migrate any ephemeral gcloud credentials from previous sessions
+if [ -d "/root/.config/gcloud" ] && [ ! -f "$CLOUDSDK_CONFIG/credentials.db" ]; then
+  echo "Migrating existing gcloud credentials to persistent volume..."
+  cp -a /root/.config/gcloud/* "$CLOUDSDK_CONFIG/" 2>/dev/null || true
+  echo "✓ Migration complete"
+fi
+
+# Ensure persistent gcloud configuration environment is available in all interactive/SSH shells
+for profile in /etc/bash.bashrc /etc/profile; do
+  if [ -f "$profile" ] && ! grep -q "CLOUDSDK_CONFIG" "$profile"; then
+    echo "export CLOUDSDK_CONFIG=\"$CLOUDSDK_CONFIG\"" >> "$profile"
+    echo "export GOOGLE_APPLICATION_CREDENTIALS=\"$GOOGLE_APPLICATION_CREDENTIALS\"" >> "$profile"
+  fi
+done
+
 # ── Google Cloud CLI Dynamic Installation ───────────────────────────────────
 
 if is_true "${OPENCLAW_INSTALL_GCLOUD:-false}"; then
@@ -275,7 +295,7 @@ if is_true "${OPENCLAW_INSTALL_GCLOUD:-false}"; then
     export PATH="$GCLOUD_DIR/bin:$PATH"
     echo "Google Cloud CLI activated (Path: $GCLOUD_DIR/bin)"
 
-    # Ensure gcloud is available in all interactive/SSH shells
+    # Ensure gcloud CLI is available in all interactive/SSH shells
     for profile in /etc/bash.bashrc /etc/profile; do
       if [ -f "$profile" ] && ! grep -q "$GCLOUD_DIR/bin" "$profile"; then
         echo "export PATH=\"$GCLOUD_DIR/bin:\$PATH\"" >> "$profile"

@@ -223,17 +223,23 @@ This is the cleanest and most secure method for headless appliances:
 
 Because `/data` is a persistent volume, your credentials are safe, private, and will survive all future container upgrades.
 
-##### Method B: Interactive User Login (Web-flow)
-For development, you can log in interactively using your Google account:
-1. SSH/Open Terminal into your `openclaw` container via Balena Cloud.
-2. Run the authentication login:
+##### Method B: Interactive User Login (Web-flow with Persistent Store)
+For development, you can log in interactively using your Google account. Both your gcloud CLI tokens and Google client Application Default Credentials (ADC) are stored under `/data/openclaw/.config/gcloud` on your persistent volume, ensuring they persist cleanly across gateway restarts and version upgrades:
+
+1. SSH/Open Terminal into your `openclaw` container via Balena Cloud:
+   ```bash
+   balena device ssh <device_uuid> openclaw
+   ```
+2. Authenticate the `gcloud` CLI:
    ```bash
    gcloud auth login --no-launch-browser
    ```
-3. Copy the long URL displayed in the terminal, paste it in your desktop browser to sign in, and click **Allow**.
-4. Copy the authorization code shown in the browser, paste it back into your Balena terminal, and press enter.
-
-Because OpenClaw versions persist and clone your user home directory `~/.config`, your login tokens are stored in the active version snapshot and are safely preserved across updates.
+   Copy the URL shown, sign in via your browser, and paste the authorization code back.
+3. **Mandatory for Vertex AI**: Generate the **Application Default Credentials (ADC)** file needed by OpenClaw's Node.js Vertex transport client:
+   ```bash
+   gcloud auth application-default login
+   ```
+   Follow the same URL/browser web-flow. This writes `application_default_credentials.json` directly into `/data/openclaw/.config/gcloud/application_default_credentials.json`, which is permanently shared with the gateway service.
 
 ### Updating gcloud
 
@@ -246,6 +252,100 @@ Or to force a clean re-installation, delete the directory from the terminal and 
 ```bash
 rm -rf /data/openclaw/google-cloud-sdk
 ```
+
+### GCP & Vertex AI Integration Key Learnings
+
+When deploying OpenClaw on Balena with Google Vertex AI, keep these architectural and behavior-specific conclusions in mind for a reliable and repeatable configuration:
+
+1. **Location & Region Constraints (The 404 NOT_FOUND Trap)**
+   - The newer Gemini 3.x series models on Vertex AI (e.g., `gemini-3.5-flash`, `gemini-3.1-pro-preview`, and `gemini-3.1-flash-lite`) are currently only published on the Google Cloud **`global`** endpoint.
+   - Targeting a regional location like `us-central1` or `europe-west3` for these models will result in a `404 NOT_FOUND` error stating *"Publisher Model was not found or your project does not have access to it"*.
+   - **Solution**: Always set your regional location environment variable `GOOGLE_CLOUD_LOCATION` to `global` when working with the 3.x series.
+
+2. **Project-ID Selection & API Scope**
+   - Google AI Studio auto-generated development projects (which start with `gen-lang-client-`) work perfectly for Vertex AI integration if Vertex AI is enabled.
+   - Standard Google Cloud user-created projects work identically, provided you have billing enabled on that specific project.
+   - Ensure the project environment variables `GOOGLE_CLOUD_PROJECT` and `GCLOUD_PROJECT` are consistently configured to match the active project.
+
+3. **Application Default Credentials (ADC) Behavior**
+   - When running `gcloud auth application-default login` inside the container, gcloud might default to adding a quota/billing project (such as `agents-playground-XXXX`) to the generated ADC file:
+     ```text
+     Quota project "agents-playground-XXXX" was added to ADC which can be used by Google client libraries for quota and billing.
+     ```
+   - This is perfectly fine and safe, as the Vertex SDK inherits the quota project for billing checks while targeting the models under the active project.
+   - Since `/data/openclaw` is a persistent volume, the generated ADC file at `/data/openclaw/.config/gcloud/application_default_credentials.json` completely survives container updates, image rebuilds, and device restarts.
+
+### Configuring Google Vertex AI Models in OpenClaw
+
+If you have configured GCP Authentication (either via Service Account JSON or User Login) using the steps above, you can register and use Google Vertex AI models inside OpenClaw.
+
+To register and use Google's keyless Vertex models:
+
+1. Open the Control UI or edit `/data/openclaw/versions/<version>/openclaw-home/.openclaw/openclaw.json` (or use `openclaw configure`).
+2. Add the models under the `models.providers.google-vertex.models` list in your `openclaw.json`. Both `"id"` and `"name"` are required, and `"api": "google-vertex"` is **mandatory** to ensure OpenClaw uses the native Google Vertex transport protocol instead of falling back to OpenAI compatibility endpoints:
+   ```json
+   {
+     "models": {
+       "providers": {
+         "google-vertex": {
+           "models": [
+             { "id": "gemini-3.5-flash", "name": "Gemini 3.5 Flash", "api": "google-vertex" },
+             { "id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro", "api": "google-vertex" },
+             { "id": "gemini-3.1-flash-lite", "name": "Gemini 3.1 Flash Lite", "api": "google-vertex" }
+           ]
+         }
+       }
+     }
+   }
+   ```
+3. Set your active default model and fallbacks to use the Vertex models (prefixed with `google-vertex/`):
+   ```json
+   {
+     "agents": {
+       "defaults": {
+         "model": "google-vertex/gemini-3.5-flash",
+         "fallback": [
+           "google-vertex/gemini-3.1-pro-preview",
+           "google-vertex/gemini-3.1-flash-lite"
+         ]
+       }
+     }
+   }
+   ```
+4. Define a keyless authentication profile mapping for the `google-vertex` provider so OpenClaw knows there is an active profile:
+   - In `openclaw.json`, ensure `"google-vertex:default"` is declared under `"auth"."profiles"`:
+     ```json
+     {
+       "auth": {
+         "profiles": {
+           "google-vertex:default": {
+             "provider": "google-vertex",
+             "mode": "api_key"
+           }
+         }
+       }
+     }
+     ```
+   - In your agent's `auth-profiles.json` (located at `/data/openclaw/versions/<version>/openclaw-home/.openclaw/agents/main/agent/auth-profiles.json`), map this profile to use keyless Vertex credentials by passing `"gcp-vertex-credentials"` as the key:
+     ```json
+     {
+       "profiles": {
+         "google-vertex:default": {
+           "type": "api_key",
+           "provider": "google-vertex",
+           "key": "gcp-vertex-credentials"
+         }
+       }
+     }
+     ```
+     Using `"gcp-vertex-credentials"` signals to the OpenClaw Vertex plugin that it should bypass API key checks and inherit your GCP SDK environment/credentials directly!
+5. Restart the gateway to apply the configuration.
+
+> [!IMPORTANT]
+> **Regional Location Warning (Vertex AI 3.x series)**:
+> The Gemini 3.x models on Vertex AI (such as `gemini-3.5-flash`, `gemini-3.1-pro-preview`, and `gemini-3.1-flash-lite`) are currently only available on the **`global`** location/endpoint. Calling regional endpoints like `us-central1` or `europe-west3` for these models will return a `404 NOT_FOUND` error.
+> 
+> OpenClaw automatically defaults `GOOGLE_CLOUD_LOCATION` to `global` via its `docker-compose.yml` to prevent this. If you override `GOOGLE_CLOUD_LOCATION` in your Balena Device Variables, make sure to set it to `global` to use Gemini 3.x models.
 
 ## Automated Daily Backups
 

@@ -46,6 +46,9 @@ services:
       # Set true for repair/debug sessions without starting the gateway
       - OPENCLAW_GATEWAY_STOP=false
 
+      # Regional Location for Vertex AI (Gemini 3.x series require "global")
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-global}
+
       # Enable dynamic Google Cloud CLI installation (optional)
       - OPENCLAW_INSTALL_GCLOUD=false
 
