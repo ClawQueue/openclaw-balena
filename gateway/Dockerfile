@@ -49,6 +49,7 @@ RUN openclaw --version 2>/dev/null | head -1 > /app/.openclaw-image-version || e
 
 COPY start.sh /app/start.sh
 COPY backup.sh /app/backup.sh
+COPY vertex_embedding_proxy.js /app/vertex_embedding_proxy.js
 COPY config/openclaw.json5 /app/openclaw.json5
 
 RUN chmod +x /app/start.sh /app/backup.sh

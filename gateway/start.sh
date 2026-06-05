@@ -545,6 +545,20 @@ fi
 
 # ── 4. Launch ──────────────────────────────────────────────────────────────
 
+# Set up persistent vertex embedding proxy
+if [ -f "/app/vertex_embedding_proxy.js" ]; then
+  # Always synchronize the version from the image to persistent storage
+  cp -f "/app/vertex_embedding_proxy.js" "$STATE_DIR/vertex_embedding_proxy.js"
+fi
+
+# Start the local Vertex AI Embedding Proxy in the background
+if [ -f "$STATE_DIR/vertex_embedding_proxy.js" ]; then
+  echo "Starting local Vertex AI Embedding Proxy..."
+  export NODE_PATH="${NPM_PERSIST_DIR}/lib/node_modules/openclaw/node_modules"
+  node "$STATE_DIR/vertex_embedding_proxy.js" > /tmp/vertex_embedding_proxy.log 2>&1 &
+  echo "✓ Local Vertex AI Embedding Proxy started"
+fi
+
 # Start the automated daily backup background daemon
 /app/backup.sh &
 
