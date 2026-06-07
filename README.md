@@ -113,6 +113,30 @@ Credentials are saved in the persistent `/data` volume and survive container upg
 
 ---
 
+### Pay-As-You-Go Vertex AI Embeddings (text-embedding-004)
+
+OpenClaw's memory search is fully integrated with Google's state-of-the-art **`text-embedding-004`** model via Vertex AI using a lightweight, built-in background translation proxy. This proxy bypasses standard API formatting constraints and maps OpenAI-compatible embedding requests natively to regional Google Vertex endpoints.
+
+To easily set up and configure Vertex AI embeddings, run the automated companion configurator inside the container terminal:
+
+```bash
+# Run the configurator in your SSH session inside the openclaw container
+bash /app/setup_vertex_embeddings.sh
+```
+
+This helper script will:
+1. Validate your Application Default Credentials (ADC) status.
+2. Update your `openclaw.json` config file to point to the local proxy on `http://127.0.0.1:18788/v1`.
+3. Check and start the background proxy daemon.
+4. Automatically rebuild and verify your memory search vector database index!
+
+You can verify the embedding health status anytime:
+```bash
+openclaw memory status
+```
+
+---
+
 ### Configuring Google Vertex AI Models in OpenClaw
 
 To run keyless Gemini Vertex models, configure your active OpenClaw version's `openclaw.json` and agent profiles:
