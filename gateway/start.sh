@@ -439,6 +439,9 @@ LEGACY_NPM_GLOBAL="/data/openclaw/npm-global"
 rm -rf "$LEGACY_NPM_GLOBAL" 2>/dev/null || true
 ln -sfn "$NPM_PERSIST_DIR" "$LEGACY_NPM_GLOBAL"
 
+# Ensure global system command points to the active sandbox version
+ln -sfn "${NPM_PERSIST_DIR}/bin/openclaw" /usr/local/bin/openclaw
+
 # Point OpenClaw's home directly at the version snapshot directory.
 # We set HOME so ~/.openclaw resolves to $VERSION_HOME/.openclaw without
 # any symlinks (OpenClaw refuses symlinks in exec approval paths).
