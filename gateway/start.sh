@@ -442,6 +442,13 @@ ln -sfn "$NPM_PERSIST_DIR" "$LEGACY_NPM_GLOBAL"
 # Ensure global system command points to the active sandbox version
 ln -sfn "${NPM_PERSIST_DIR}/bin/openclaw" /usr/local/bin/openclaw
 
+# Ensure active sandbox npm-global binary path is available in all interactive/SSH shells
+for profile in /etc/bash.bashrc /etc/profile; do
+  if [ -f "$profile" ] && ! grep -q "npm-global/bin" "$profile"; then
+    echo "export PATH=\"/data/openclaw/npm-global/bin:\$PATH\"" >> "$profile"
+  fi
+done
+
 # Point OpenClaw's home directly at the version snapshot directory.
 # We set HOME so ~/.openclaw resolves to $VERSION_HOME/.openclaw without
 # any symlinks (OpenClaw refuses symlinks in exec approval paths).
